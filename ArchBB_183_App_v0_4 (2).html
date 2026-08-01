@@ -1,0 +1,2573 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#080a0e">
+<title>ArchBB 1.83 — Sessioni &amp; Analisi</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   ArchBB 1.83 — Companion App · v0.4
+   ─────────────────────────────────────────────────────────────────────────
+   Continua il design system della v0.1 (a sua volta erede della 1.29):
+   dark industrial, ciano come unico accento, mono per OGNI numero — perche'
+   un numero in proporzionale sembra un'opinione, in monospaziato sembra una
+   misura. Nessuna libreria esterna: i grafici sono canvas scritti a mano.
+
+   PERCHE' NIENTE CDN
+     La 1.29 caricava Chart.js da cdnjs. In campo, accanto all'arco, la rete
+     puo' non esserci: con un <script src> esterno che fallisce l'app non
+     degrada, si rompe. Qui tutto e' dentro il file. Costo: ~400 righe di
+     canvas. Guadagno: funziona in aereo, in bosco e in cantina.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg0:#080a0e; --bg1:#0d1017; --bg2:#131820; --bg3:#1a2130; --bg4:#212c3d;
+  --border:#2a3548; --brd2:#3a4f6a;
+  --text:#e6eef8; --text2:#9fb4cd; --text3:#6b829e;
+  --acc:#00c8ff; --acc2:#0088bb; --grn:#00e87a; --amb:#ffb020; --red:#ff4455;
+  --pur:#a67cff; --teal:#20d4c0;
+  --mono:'JetBrains Mono','Fira Code','Courier New',monospace;
+  --sans:'Inter',system-ui,sans-serif;
+  --r8:8px; --r12:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overscroll-behavior-y:none}
+body{
+  background:radial-gradient(1200px 600px at 50% -10%, #10161f 0%, var(--bg0) 60%);
+  color:var(--text); font-family:var(--sans); min-height:100vh;
+  padding:14px 14px 40px; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:620px;margin:0 auto}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.logo{
+  width:40px;height:40px;border-radius:10px;flex:0 0 auto;
+  background:linear-gradient(135deg,var(--acc),var(--acc2));
+  display:grid;place-items:center;color:#001018;font-weight:800;font-size:15px;
+  font-family:var(--mono);box-shadow:0 4px 16px rgba(0,200,255,.25);
+}
+.title h1{font-size:16px;letter-spacing:.5px}
+.title p{font-size:11px;color:var(--text3);font-family:var(--mono)}
+
+/* ── Connection bar ─────────────────────────────────────────────────────── */
+.connbar{
+  display:flex;align-items:center;gap:10px;margin-bottom:12px;
+  background:var(--bg1);border:1px solid var(--border);border-radius:var(--r12);
+  padding:11px 13px;
+}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--text3);flex:0 0 auto}
+.dot.on{background:var(--grn);box-shadow:0 0 8px var(--grn)}
+.dot.searching{background:var(--amb);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.connbar .st{flex:1;min-width:0}
+.connbar .st .l1{font-size:13px;font-weight:600}
+.connbar .st .l2{font-size:11px;color:var(--text3);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+button{
+  font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;
+  border:none;border-radius:var(--r8);padding:10px 15px;transition:.15s;
+}
+.btn-primary{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#001018}
+.btn-primary:active{transform:scale(.97)}
+.btn-ghost{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+.btn-ghost:active{background:var(--bg4)}
+.btn-sm{padding:6px 11px;font-size:11px}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible{
+  outline:2px solid var(--acc);outline-offset:2px}
+
+/* ── Tab bar ────────────────────────────────────────────────────────────── */
+#tabbar{
+  display:flex;gap:4px;background:var(--bg1);border:1px solid var(--border);
+  border-radius:var(--r12);padding:4px;margin-bottom:14px;overflow-x:auto;
+  scrollbar-width:none;
+}
+#tabbar::-webkit-scrollbar{display:none}
+.tab{
+  flex:1 0 auto;text-align:center;padding:8px 10px;border-radius:var(--r8);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.6px;color:var(--text3);
+  cursor:pointer;user-select:none;transition:.15s;white-space:nowrap;
+}
+.tab:hover{color:var(--text2)}
+.tab.active{background:var(--bg3);color:var(--acc)}
+.tab.locked{opacity:.42}
+.panel{display:none;animation:fade .18s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+/* ── Card ───────────────────────────────────────────────────────────────── */
+.card{
+  background:var(--bg1);border:1px solid var(--border);border-radius:var(--r12);
+  padding:15px;margin-bottom:12px;
+}
+.card.disabled{opacity:.45;pointer-events:none}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;
+  color:var(--acc);margin-bottom:13px;font-weight:700;
+  display:flex;align-items:center;gap:8px}
+.card h2::before{content:'';width:3px;height:14px;background:var(--acc);border-radius:2px}
+.card h2 .rt{margin-left:auto;font-size:10px;color:var(--text3);
+  letter-spacing:0;text-transform:none;font-family:var(--mono);font-weight:400}
+
+.note{font-size:11px;color:var(--text3);line-height:1.65;margin-top:10px}
+.note b{color:var(--text2);font-weight:600}
+.note code{font-family:var(--mono);color:var(--teal);font-size:10.5px}
+
+/* ── Gruppi di fase ──────────────────────────────────────────────────────
+   Tre colori con significato, non sette arbitrari: il raggruppamento si
+   legge anche senza leggere le intestazioni. Ciano = mira, ambra = rilascio,
+   verde = tenuta, come sulla 1.69. */
+.fase{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r12);
+  padding:15px;margin-bottom:12px;border-top-width:3px}
+.fase1{border-top-color:var(--acc)}
+.fase2{border-top-color:var(--amb)}
+.fase3{border-top-color:var(--grn)}
+.fase-h{display:flex;align-items:center;gap:8px;font-family:var(--mono);
+  font-size:12px;letter-spacing:1.4px;margin-bottom:13px;font-weight:700}
+.fase-h i{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.fase1 .fase-h{color:var(--acc)} .fase1 .fase-h i{background:var(--acc)}
+.fase2 .fase-h{color:var(--amb)} .fase2 .fase-h i{background:var(--amb)}
+.fase3 .fase-h{color:var(--grn)} .fase3 .fase-h i{background:var(--grn)}
+.fase-h em{margin-left:auto;font-style:normal;font-size:10px;letter-spacing:0;
+  color:var(--text3);font-weight:400;text-align:right}
+.pill .kk{font-size:9px;color:var(--text3);margin-top:2px;line-height:1.35;
+  opacity:.85}
+.pill .rif{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:5px;
+  padding-top:5px;border-top:1px solid var(--bg3);opacity:.9}
+
+/* ── Navigatore dei tiri ─────────────────────────────────────────────────
+   Le chip t1..tn andavano bene per nove tiri; per sessanta diventano un muro
+   illeggibile che scorre orizzontalmente. Due frecce per il passo, e in mezzo
+   un menu per saltare direttamente: cresce senza degradare. */
+.nav{display:flex;align-items:center;gap:10px}
+.nav-b{flex:0 0 auto;width:46px;height:46px;border-radius:var(--r8);
+  background:var(--bg3);border:1px solid var(--border);color:var(--text);
+  font-size:22px;line-height:1;display:grid;place-items:center;cursor:pointer}
+.nav-b:active{background:var(--bg4)}
+.nav-b:disabled{opacity:.3;cursor:not-allowed}
+.nav-c{flex:1;text-align:center;min-width:0}
+.nav-c select{font-family:var(--mono);font-size:19px;font-weight:700;
+  text-align:center;text-align-last:center;background:var(--bg2);
+  border:1px solid var(--border);padding:7px 4px;color:var(--acc)}
+.nav-c .pos{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:5px}
+.pill .v.na{color:var(--text3);font-size:11px;font-weight:400}
+
+/* ── Pills / metriche ───────────────────────────────────────────────────── */
+.pills{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pills.c2{grid-template-columns:repeat(2,1fr)}
+.pill{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r8);
+  padding:10px;text-align:center}
+.pill .v{font-family:var(--mono);font-size:16px;font-weight:700;line-height:1.25}
+.pill .v small{font-size:10px;color:var(--text3);font-weight:400}
+.pill .k{font-size:9.5px;color:var(--text3);text-transform:uppercase;
+  margin-top:3px;letter-spacing:.4px}
+
+/* ── Form ───────────────────────────────────────────────────────────────── */
+.field{margin-bottom:13px}
+.field label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px}
+.field .hint{font-size:10px;color:var(--text3);margin-top:4px;font-family:var(--mono);
+  line-height:1.55}
+input,select{
+  width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  border-radius:var(--r8);padding:10px 12px;font-family:var(--mono);font-size:14px;
+}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.actions{display:flex;gap:9px;margin-top:4px}
+.actions button{flex:1}
+
+/* ── Sessioni ───────────────────────────────────────────────────────────── */
+.sess-list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
+.sess{display:flex;align-items:center;gap:10px;background:var(--bg2);
+  border:1px solid var(--border);border-radius:var(--r8);padding:10px 11px}
+.sess.sel{border-color:var(--acc);background:rgba(0,200,255,.06)}
+.sess .idx{font-family:var(--mono);font-size:11px;color:var(--text3);min-width:24px}
+.sess .nm{flex:1;font-family:var(--mono);font-size:12.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .sh{font-family:var(--mono);font-size:11px;color:var(--acc);
+  background:rgba(0,200,255,.1);padding:3px 8px;border-radius:20px;white-space:nowrap}
+.empty{text-align:center;color:var(--text3);font-size:12.5px;padding:22px 10px;
+  line-height:1.7}
+.empty b{display:block;color:var(--text2);font-size:13px;margin-bottom:5px}
+
+/* ── Badge sorgente dati ────────────────────────────────────────────────── */
+.badge{font-family:var(--mono);font-size:9.5px;padding:2px 7px;border-radius:20px;
+  letter-spacing:.5px;border:1px solid}
+.badge.ble{color:var(--acc);border-color:rgba(0,200,255,.4);background:rgba(0,200,255,.08)}
+.badge.sd{color:var(--amb);border-color:rgba(255,176,32,.4);background:rgba(255,176,32,.08)}
+
+/* ── Barra di avanzamento ───────────────────────────────────────────────── */
+.prog{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:9px}
+.prog i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc));
+  width:0;transition:width .12s linear}
+
+/* ── Tabella tiri ───────────────────────────────────────────────────────── */
+.tbl-wrap{overflow-x:auto;margin:0 -4px}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:11.5px}
+th{color:var(--text3);font-weight:600;text-align:right;padding:7px 6px;
+  border-bottom:1px solid var(--border);font-size:9.5px;letter-spacing:.4px;
+  text-transform:uppercase;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{padding:7px 6px;border-bottom:1px solid var(--bg2);text-align:right;white-space:nowrap}
+tr.sel td{background:rgba(0,200,255,.07)}
+tr[data-shot]{cursor:pointer}
+tr[data-shot]:hover td{background:var(--bg2)}
+td.na{color:var(--text3)}
+.cls0{color:var(--grn)} .cls1{color:var(--amb)} .cls2{color:var(--red)}
+.cls3{color:var(--amb)} .cls4{color:var(--text3)}
+.outlier{color:var(--pur);font-weight:700}
+
+/* ── Chip selettore ─────────────────────────────────────────────────────── */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+.chip{font-family:var(--mono);font-size:10.5px;padding:6px 11px;border-radius:20px;
+  background:var(--bg2);border:1px solid var(--border);color:var(--text3);cursor:pointer;
+  user-select:none;transition:.15s}
+.chip.on{background:rgba(0,200,255,.12);border-color:var(--acc);color:var(--acc)}
+
+/* ── Canvas ─────────────────────────────────────────────────────────────── */
+canvas{display:block;width:100%;border-radius:var(--r8);background:var(--bg2)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;
+  color:var(--text3);margin-top:9px}
+.legend i{display:inline-block;width:9px;height:3px;border-radius:2px;
+  margin-right:5px;vertical-align:middle}
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(110px);
+  background:var(--bg4);border:1px solid var(--brd2);color:var(--text);
+  padding:12px 18px;border-radius:var(--r8);font-size:13px;transition:.3s;
+  box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:100;max-width:90%;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--grn)} #toast.err{border-color:var(--red)}
+
+.foot{text-align:center;font-size:10px;color:var(--text3);
+  font-family:var(--mono);margin-top:18px;line-height:1.7}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">BB</div>
+    <div class="title">
+      <h1>ArchBB 1.83</h1>
+      <p>sessioni &amp; analisi · v0.4</p>
+    </div>
+  </header>
+
+  <div class="connbar">
+    <div class="dot" id="dot"></div>
+    <div class="st">
+      <div class="l1" id="connL1">Non connesso</div>
+      <div class="l2" id="connL2">premi Connetti e scegli ArchBB-183…</div>
+    </div>
+    <button class="btn-primary" id="btnConn" onclick="toggleConnect()">Connetti</button>
+  </div>
+
+  <div id="tabbar">
+    <div class="tab active" data-tab="device"  onclick="showTab('device')">DEVICE</div>
+    <div class="tab"        data-tab="dash"    onclick="showTab('dash')">QUADRO</div>
+    <div class="tab"        data-tab="tiri"    onclick="showTab('tiri')">TIRI</div>
+    <div class="tab locked" data-tab="onda"    onclick="showTab('onda')">ONDA</div>
+    <div class="tab locked" data-tab="fft"     onclick="showTab('fft')">FFT</div>
+    <div class="tab locked" data-tab="traccia" onclick="showTab('traccia')">TRACCIA</div>
+  </div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB DEVICE                                                            -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel active" id="tab-device">
+
+  <div class="card disabled" id="cardStatus">
+    <h2>Stato dispositivo</h2>
+    <div class="pills">
+      <div class="pill"><div class="v" id="pBatt">–</div><div class="k">batteria</div></div>
+      <div class="pill"><div class="v" id="pSd">–</div><div class="k">SD liberi</div></div>
+      <div class="pill"><div class="v" id="pSess">–</div><div class="k">sessioni</div></div>
+    </div>
+    <div class="hint" id="fwline" style="margin-top:12px;font-family:var(--mono);
+         font-size:10px;color:var(--text3)">firmware: – · RTC: –</div>
+  </div>
+
+  <div class="card disabled" id="cardTime">
+    <h2>Orologio</h2>
+    <div class="hint" id="rtcNow" style="margin-bottom:11px;font-family:var(--mono);
+         font-size:10px;color:var(--text3)">ora sul device: sconosciuta</div>
+    <button class="btn-primary" style="width:100%" onclick="syncTime()">
+      Sincronizza con questo telefono
+    </button>
+  </div>
+
+  <!-- ── SESSIONI: elenco + download ──────────────────────────────────── -->
+  <div class="card disabled" id="cardSessions">
+    <h2>Sessioni sulla microSD<span class="rt" id="dlHint"></span></h2>
+    <div class="actions" style="margin-bottom:11px">
+      <button class="btn-primary" onclick="listSessions()">Aggiorna elenco</button>
+    </div>
+    <div class="sess-list" id="sessList">
+      <div class="empty"><b>Nessun elenco</b>Premi «Aggiorna elenco» per leggere la card.</div>
+    </div>
+    <div class="prog" id="dlProg" style="display:none"><i id="dlBar"></i></div>
+    <div class="note">
+      Tocca una sessione per scaricarne le <b>metriche</b> (<code>shots.csv</code>,
+      meno di un secondo). Le forme d'onda restano sulla card: si aprono dal
+      riquadro qui sotto, senza passare dal BLE.
+    </div>
+  </div>
+
+  <!-- ── SORGENTE LOCALE (card estratta) ──────────────────────────────── -->
+  <div class="card">
+    <h2>Cartella sessione sul computer</h2>
+    <div class="actions">
+      <button class="btn-ghost" onclick="openLocalFolder()">Apri cartella SESS_…</button>
+      <button class="btn-ghost" onclick="openLocalFiles()">Scegli file</button>
+    </div>
+    <input type="file" id="fileInput" multiple style="display:none"
+           onchange="onLocalFiles(this.files)">
+    <div class="note">
+      Estratta la microSD, apri la cartella <code>SESS_…</code>: l'app legge
+      <code>shots.csv</code> e tutti i <code>burst_NNNN.bin</code> e sblocca ONDA,
+      FFT e TRACCIA. Se la sessione era già arrivata via BLE, le forme d'onda si
+      <b>agganciano alle righe che hai già</b> — la colonna <code>burst_file</code>
+      del CSV è la chiave.
+      <br><br>«Apri cartella» richiede Chrome o Edge da computer; da telefono usa
+      «Scegli file» e seleziona tutto il contenuto della cartella.
+    </div>
+  </div>
+
+  <!-- ── SESSIONI IN MEMORIA ──────────────────────────────────────────── -->
+  <div class="card">
+    <h2>In memoria<span class="rt" id="memCount">0 sessioni</span></h2>
+    <div class="sess-list" id="memList">
+      <div class="empty"><b>Ancora niente</b>Scarica una sessione dal device o apri una cartella.</div>
+    </div>
+  </div>
+
+  <!-- ── TARATURA DI MONTAGGIO ─────────────────────────────────────────── -->
+  <div class="card disabled" id="cardMountCal">
+    <h2>Taratura del montaggio<span class="rt" id="calStato">—</span></h2>
+    <div class="pills c2">
+      <div class="pill"><div class="v" id="calCant">—</div><div class="k">offset cant</div></div>
+      <div class="pill"><div class="v" id="calAlzo">—</div><div class="k">offset alzo</div></div>
+    </div>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn-primary" onclick="mountCal()">L'arco è a piombo — tara</button>
+    </div>
+    <div class="actions" style="margin-top:8px">
+      <button class="btn-ghost" onclick="mountCalReset()">Azzera la taratura</button>
+    </div>
+    <div class="note">
+      Metti l'arco <b>a piombo</b> — in morsa, su cavalletto, o appoggiato a uno
+      stipite — e premi il tasto. Il dispositivo legge l'assetto e lo salva come
+      offset: da lì in poi cant e alzo sono riferiti all'arco a piombo, non al
+      chip, e l'inclinazione della staffa sparisce dai numeri.
+      <br><br>Senza taratura le <b>variazioni</b> restano affidabili (l'offset è
+      costante e sparisce nelle differenze), ma il valore assoluto no. E l'alzo
+      assoluto serve, per esempio, a confrontarlo col simulatore balistico alla
+      distanza di tiro.
+    </div>
+  </div>
+
+  <div class="card disabled" id="cardConfig">
+    <h2>Parametri (config)</h2>
+    <div class="field">
+      <label>Montaggio IMU</label>
+      <select id="cfgMount"></select>
+      <div class="hint" id="cfgMountHint">su quale lato del riser è fissata la scheda</div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Soglia trigger [m/s²]</label>
+        <input type="number" id="cfgThr" step="0.5" min="0.5"></div>
+      <div class="field"><label>Conferma (campioni)</label>
+        <input type="number" id="cfgConf" step="1" min="1" max="10"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Finestra pre [ms]</label>
+        <input type="number" id="cfgPre" step="100" min="0"></div>
+      <div class="field"><label>Finestra post [ms]</label>
+        <input type="number" id="cfgPost" step="100" min="0"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Riarmo [ms]</label>
+        <input type="number" id="cfgRearm" step="100" min="200"></div>
+      <div class="field"><label>Massa arco [kg]</label>
+        <input type="number" id="cfgMass" step="0.1" min="0"></div>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" onclick="readConfig()">Rileggi</button>
+      <button class="btn-primary" onclick="writeConfig()">Scrivi sul device</button>
+    </div>
+    <div class="actions" style="margin-top:8px">
+      <button class="btn-ghost" onclick="resetConfig()">Ripristina default di fabbrica</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB QUADRO (dashboard di sessione — solo CSV)                         -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="tab-dash">
+  <div id="dashEmpty" class="card">
+    <div class="empty"><b>Nessuna sessione aperta</b>
+      Scarica le metriche dal device o apri una cartella dalla card.</div>
+  </div>
+  <div id="dashBody" style="display:none">
+
+    <div class="card">
+      <h2>Sessione<span class="rt" id="dashName">–</span></h2>
+      <div class="pills">
+        <div class="pill"><div class="v" id="kShots">–</div><div class="k">tiri</div></div>
+        <div class="pill"><div class="v" id="kDist">–</div><div class="k">distanza</div></div>
+        <div class="pill"><div class="v" id="kCenter">–</div><div class="k">al centro</div></div>
+      </div>
+      <div class="note" id="dashMeta"></div>
+    </div>
+
+    <div class="card" id="dashAvviso" style="display:none;border-color:var(--amb)">
+      <h2 style="color:var(--amb)">Corrispondenza dedotta</h2>
+      <div class="note">
+        Seduta anteriore al firmware <code>1.83-F11</code>: <b>angolo di mira e
+        cant sono già rimessi al posto giusto</b> dall'app, in base al verdetto
+        del DIAG ASSI del 26/07 (montaggio destro).
+        <br><br>Anche le <b>forme d'onda</b> vengono raddrizzate: i burst sono
+        salvati nel frame di <code>mount = 0</code>, e l'app ci applica la
+        rotazione mancante. Quindi torsione, fermezza, ONDA, FFT e TRACCIA sono
+        sugli assi giusti. L'<b>hold</b> viene <b>ricalcolato</b> dai campioni,
+        perché quello nel CSV il dispositivo l'ha calcolato sull'asse sbagliato
+        e non è recuperabile.
+        <br><br>Resta vero solo per il valore assoluto dell'alzo: senza taratura
+        del montaggio contiene anche l'inclinazione della staffa. Le
+        <b>variazioni</b> sono comunque affidabili.
+      </div>
+    </div>
+
+    <!-- Selettore del tiro: le tre fasi descrivono UN TIRO, non la media
+         della seduta. Sotto ogni numero c'e' comunque il riferimento di
+         sessione, cosi' si vede subito se quel tiro e' nella norma. -->
+    <div class="card" style="padding:12px 15px">
+      <div class="nav">
+        <button class="nav-b" id="navPrev" onclick="stepShot(-1)">&lsaquo;</button>
+        <div class="nav-c">
+          <select id="navSel" onchange="pickShot(parseInt(this.value))"></select>
+          <div class="pos" id="navPos">—</div>
+        </div>
+        <button class="nav-b" id="navNext" onclick="stepShot(1)">&rsaquo;</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         LE TRE FASI DEL TIRO — la struttura che i dati hanno.
+         Ordine cronologico, non elenco piatto. Colore = fase, non metrica.
+         Distillata dai 42 tiri del 14/07: PCA con PC1 al 32 % (nessun indice
+         unico di bravura) e tre gruppi statisticamente indipendenti.
+         ══════════════════════════════════════════════════════════════════ -->
+    <div class="fase fase1">
+      <div class="fase-h"><i></i>1 · MIRA<em>prima dello scocco</em></div>
+      <div class="pills">
+        <div class="pill"><div class="v" id="mFerm">–</div>
+             <div class="k">fermezza</div><div class="kk">quanto era fermo l'arco</div><div class="rif" id="mFermR"></div></div>
+        <div class="pill"><div class="v" id="mCant">–</div>
+             <div class="k">angolo di mira</div><div class="kk">alzo del tiro</div><div class="rif" id="mCantR"></div></div>
+        <div class="pill"><div class="v" id="mXi">–</div>
+             <div class="k">ξ consistenza</div><div class="kk">somiglianza coi tuoi tiri</div><div class="rif" id="mXiR"></div></div>
+      </div>
+    </div>
+
+    <div class="fase fase2">
+      <div class="fase-h"><i></i>2 · RILASCIO<em>0–40 ms · finestra del jerk</em></div>
+      <div class="pills">
+        <div class="pill"><div class="v" id="mPul">–</div>
+             <div class="k">pulizia rilascio</div><div class="kk">strappo laterale</div><div class="rif" id="mPulR"></div></div>
+        <div class="pill"><div class="v" id="mNet">–</div>
+             <div class="k">nettezza scocco</div><div class="kk">rapidità del rilascio</div><div class="rif" id="mNetR"></div></div>
+        <div class="pill"><div class="v" id="mTor">–</div>
+             <div class="k">torsione</div><div class="kk">rotazione della mano</div><div class="rif" id="mTorR"></div></div>
+      </div>
+    </div>
+
+    <div class="fase fase3">
+      <div class="fase-h"><i></i>3 · TENUTA<em>40–900 ms · freccia già partita</em></div>
+      <div class="pills c2">
+        <div class="pill"><div class="v" id="mHold">–</div>
+             <div class="k">hold (braccio)</div><div class="kk">deriva a +900 ms</div><div class="rif" id="mHoldR"></div></div>
+        <div class="pill"><div class="v" id="mFT">–</div>
+             <div class="k">follow-through</div><div class="kk">quiete post-scocco</div><div class="rif" id="mFTR"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Perché tre gruppi e non un voto</h2>
+      <div class="note">
+        Le tre fasi sono <b>errori indipendenti</b>, misurato sui 42 tiri del
+        14/07: ρ(mira, rilascio) = −0,24 · ρ(mira, tenuta) = +0,25 ·
+        ρ(rilascio, tenuta) = −0,04, tutte con p &gt; 0,1. Si può essere fermi in
+        mira, strappare al rilascio e tenere benissimo dopo. La PCA lo conferma:
+        PC1 spiega solo il 32 % della varianza. Sommarle in un indice unico
+        perderebbe l'unica cosa che dicono: <b>quale</b> dei tre gesti sistemare.
+        <br><br>La <b>tenuta</b> viene dalla ricostruzione angolare integrando il
+        giroscopio, e la discriminante non è il picco di rinculo ma la
+        <b>pendenza dopo ~150 ms</b>. Lo sbandamento laterale non c'è perché non
+        è misurabile: SNR 0,5×, sepolto sotto l'offset di fabbrica del giroscopio.
+        <br><br>I <b>40 ms</b> sono la finestra di misura del jerk. La freccia
+        lascia la corda prima, attorno ai <b>15 ms</b>: solo lì il gesto devia
+        <i>questa</i> freccia, dopo racconta le tue tendenze.
+      </div>
+      <div class="note" id="mancanti" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h2>Ripartizione delle classi</h2>
+      <canvas id="cvClasses" height="180"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--grn)"></i>buono</span>
+        <span><i style="background:var(--amb)"></i>medio</span>
+        <span><i style="background:var(--red)"></i>da correggere</span>
+        <span><i style="background:var(--text3)"></i>non calcolato</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB TIRI                                                              -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="tab-tiri">
+  <div id="tiriEmpty" class="card">
+    <div class="empty"><b>Nessuna sessione aperta</b>
+      Scarica le metriche dal device o apri una cartella dalla card.</div>
+  </div>
+  <div id="tiriBody" style="display:none">
+    <div class="card">
+      <h2>Andamento nella seduta</h2>
+      <div class="chips" id="trendChips">
+        <div class="chip on" data-m="alzo" id="chipAlzo">alzo</div>
+        <div class="chip"    data-m="cant" id="chipCant">cant</div>
+        <div class="chip"    data-m="hold">hold</div>
+        <div class="chip"    data-m="jerk">jerk rilascio</div>
+      </div>
+      <canvas id="cvTrend" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--acc)"></i>valore del tiro</span>
+        <span><i style="background:var(--text3)"></i>media di sessione</span>
+        <span><i style="background:var(--brd2)"></i>banda ±1σ</span>
+      </div>
+    </div>
+
+    <div class="card" id="tiriAvviso" style="display:none;border-color:var(--amb)">
+      <h2 style="color:var(--amb)">Corrispondenza dedotta</h2>
+      <div class="note">
+        Seduta registrata prima del firmware <code>1.83-F11</code>, con la scheda
+        a destra e la configurazione a «frontale»: in quel caso le colonne del
+        CSV sono invertite, e <b>l'app le rimette al posto giusto</b>. Quello che
+        il file chiama «cant» è l'<b>alzo</b>, e viceversa.
+        <br><br>Non è un'ipotesi: è il verdetto del DIAG ASSI del 26/07
+        (montaggio destro, margine 36 su soglia 5), confermato dai numeri stessi
+        — quella colonna segna 17,0° con σ 0,72°, cioè una mira tenuta, non un
+        rollio del braccio d'arco.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tutti i tiri<span class="rt" id="tiriRt"></span></h2>
+      <div class="tbl-wrap"><table id="tblShots"></table></div>
+      <div class="note">
+        Un campo vuoto significa <b>non calcolato</b>, non «zero»: è la
+        sentinella che il firmware scrive quando la finestra non era
+        sufficiente. La colonna <b>D</b> è la distanza di Mahalanobis del tiro
+        dal centroide della seduta su (cant, alzo, hold, jerk): valori sopra
+        <code>2,5</code> sono tiri che si comportano diversamente da tutti gli
+        altri — il primo posto dove guardare la forma d'onda.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB ONDA                                                              -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="tab-onda">
+  <div id="ondaEmpty" class="card">
+    <div class="empty"><b>Servono le forme d'onda</b>
+      Apri la cartella <code>SESS_…</code> dalla microSD nel tab DEVICE:
+      i file <code>burst_NNNN.bin</code> non passano dal BLE.</div>
+  </div>
+  <div id="ondaBody" style="display:none">
+    <div class="card">
+      <h2>Accelerazioni<span class="rt" id="wfRt">–</span></h2>
+      <div class="chips" id="shotChips"></div>
+      <canvas id="cvAcc" height="230"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--red)"></i>ax verticale</span>
+        <span><i style="background:var(--grn)"></i>ay laterale</span>
+        <span><i style="background:var(--acc)"></i>az asse freccia</span>
+        <span><i style="background:var(--amb)"></i>scocco</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Velocità angolari</h2>
+      <canvas id="cvGyr" height="230"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--red)"></i>gx</span>
+        <span><i style="background:var(--grn)"></i>gy</span>
+        <span><i style="background:var(--acc)"></i>gz</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>La finestra che conta</h2>
+      <canvas id="cvZoom" height="200"></canvas>
+      <div class="note">
+        Zoom su −60 / +160 ms attorno allo scocco. La banda ambra sono i primi
+        <b>15 ms</b>: finché la freccia è sulla corda, il gesto la influenza
+        ancora. Dopo, il movimento racconta le tue tendenze ma non cambia più
+        <i>questa</i> freccia.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB FFT                                                               -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="tab-fft">
+  <div id="fftEmpty" class="card">
+    <div class="empty"><b>Servono le forme d'onda</b>
+      Lo spettro si calcola sui campioni: apri la cartella
+      <code>SESS_…</code> dalla microSD.</div>
+  </div>
+  <div id="fftBody" style="display:none">
+    <div class="card">
+      <h2>Spettro post-scocco<span class="rt" id="fftRt">–</span></h2>
+      <div class="chips" id="fftWinChips">
+        <div class="chip on" data-w="300">finestra 300 ms</div>
+        <div class="chip"    data-w="500">500 ms</div>
+        <div class="chip"    data-w="1000">1000 ms</div>
+      </div>
+      <canvas id="cvFft" height="250"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--acc)"></i>ampiezza az</span>
+        <span><i style="background:var(--red)"></i>taglio del filtro IMU</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Numeri dello spettro</h2>
+      <div class="pills">
+        <div class="pill"><div class="v" id="fPeak">–</div><div class="k">picco</div></div>
+        <div class="pill"><div class="v" id="fAmp">–</div><div class="k">ampiezza</div></div>
+        <div class="pill"><div class="v" id="fRes">–</div><div class="k">risoluzione</div></div>
+      </div>
+      <div class="note" id="fftWarn"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!--  TAB TRACCIA                                                           -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<div class="panel" id="tab-traccia">
+  <div id="trEmpty" class="card">
+    <div class="empty"><b>Servono le forme d'onda</b>
+      La traccia integra il giroscopio: apri la cartella
+      <code>SESS_…</code> dalla microSD.</div>
+  </div>
+  <div id="trBody" style="display:none">
+    <div class="card">
+      <h2>Traccia 2D<span class="rt" id="trRt">–</span></h2>
+      <canvas id="cvTrace" height="330"></canvas>
+      <div class="legend">
+        <span><i style="background:#4488ff"></i>pre-mira</span>
+        <span><i style="background:var(--grn)"></i>puntamento</span>
+        <span><i style="background:var(--amb)"></i>scocco</span>
+        <span><i style="background:var(--red)"></i>follow-through</span>
+        <span><i style="background:#fff"></i>+15 ms</span>
+      </div>
+      <div class="chips" style="margin-top:12px">
+        <div class="chip on" id="chipYaw" onclick="toggleYawSign()">verso yaw: +gx a destra</div>
+      </div>
+      <div class="note">
+        <b>Il verso dello yaw non è validato sulla 1.83.</b> Il montaggio
+        <code>MOUNT_0_FLIPZ</code> è una riflessione (det = −1): ribalta la
+        regola della mano destra, quindi il segno ereditato dalla 1.69 potrebbe
+        essere invertito. Si risolve in un modo solo — un test statico a banco
+        con una rotazione nota, non un gesto ambiguo. Finché non l'hai fatto,
+        usa il pulsante qui sopra e fidati della forma, non del verso.
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div class="foot">
+    ArchBB · Archery Black Box · Cesare Pagura<br>
+    Web Bluetooth · Chrome/Edge · nessuna dipendenza esterna
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   §1 · PROTOCOLLO — deve combaciare BIT PER BIT con ble_service.h.
+   Ogni costante qui ha un gemello nel firmware: se cambia una, cambia l'altra.
+   ══════════════════════════════════════════════════════════════════════════ */
+const SVC   = 'bb1c0000-0001-0000-0000-000000000001';
+const C_CFG = 'bb1c0000-0001-0000-0000-000000000010';
+const C_TIME= 'bb1c0000-0001-0000-0000-000000000020';
+const C_CMD = 'bb1c0000-0001-0000-0000-000000000030';
+const C_ST  = 'bb1c0000-0001-0000-0000-000000000040';
+const C_SES = 'bb1c0000-0001-0000-0000-000000000050';
+const C_DAT = 'bb1c0000-0001-0000-0000-000000000060';   // v0.2: download file
+
+const CMD_PING = 0x01, CMD_LIST = 0x02, CMD_RESET = 0x03, CMD_GET_FILE = 0x04;
+const CMD_MOUNT_CAL = 0x05, CMD_MOUNT_CAL_RST = 0x06;
+
+/* I MONTAGGI — il nome e' il LATO FISICO, non la rotazione.
+   Se la scheda e' a destra, qui e ovunque si legge "destro". Il flip-Z e' una
+   proprieta' interna della 1.83 e non deve comparire in nessuna interfaccia.
+   Tabella ancorata al DIAG ASSI del 26/07 su questa scheda: valore 2 =
+   destro, verificato sul riser con margine 36 e confermato dai nove tiri del
+   25/07. Deve restare allineata a mount_name() in mount.h. */
+const MONTAGGI = [
+  { v: 0, nome: 'Frontale',  nota: 'schermo verso l\u0027arciere' },
+  { v: 1, nome: 'Sinistro',  nota: 'lato sinistro del riser' },
+  { v: 2, nome: 'Destro',    nota: 'lato destro del riser (verificato)' },
+  { v: 3, nome: 'Opposto',   nota: 'lato opposto' },
+];
+
+const FILE_SHOTS_CSV = 0, FILE_SESSION_TXT = 1;
+
+const FRM_HEADER = 0x01, FRM_CHUNK = 0x02, FRM_END = 0x03, FRM_ERROR = 0xFF;
+
+const DL_ERR = {1:'microSD non montata', 2:'sessione inesistente',
+                3:'file non trovato nella sessione', 4:'tipo di file non gestito',
+                5:'errore di lettura dalla card'};
+
+const CFG_SIZE = 35;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §2 · CRC32 — CRC-32/ISO-HDLC, lo stesso di zlib e del firmware.
+   Non e' una copia del codice C: e' la stessa specifica implementata due
+   volte. Verificato sui dati reali: shots.csv di 719 byte -> 0xC0534FC8.
+   ══════════════════════════════════════════════════════════════════════════ */
+function crc32(bytes){
+  let crc = 0xFFFFFFFF;
+  for(let i=0;i<bytes.length;i++){
+    crc ^= bytes[i];
+    for(let k=0;k<8;k++) crc = (crc>>>1) ^ (0xEDB88320 & -(crc & 1));
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §3 · MODELLO DATI
+   Una sessione = metadati + array di tiri. Ogni tiro porta le colonne del CSV
+   e, se disponibile, il burst agganciato tramite la colonna burst_file.
+   ══════════════════════════════════════════════════════════════════════════ */
+const DB = { sessions:{}, current:null };
+let   selShot = 0;          // indice del tiro selezionato (tab ONDA/FFT/TRACCIA)
+let   trendMetric = 'alzo';
+let   fftWinMs = 300;       // scelta sui dati: vedi §renderFft
+let   signYaw = -1;         // 1.69: -1 verificato a banco. Sulla 1.83 DA VALIDARE.
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §4 · PARSER shots.csv (csv_format = 1)
+   ─────────────────────────────────────────────────────────────────────────
+   Due regole non negoziabili, entrambe scritte nei commenti del firmware:
+     1) si mappa per NOME di colonna, mai per posizione. I campi nuovi vanno
+        in coda, e un file vecchio deve restare leggibile.
+     2) campo vuoto = NON CALCOLATO, che e' diverso da zero. Un hold non
+        valido con valore 0 verrebbe letto come "tenuta perfetta": il
+        contrario della verita'.
+   ══════════════════════════════════════════════════════════════════════════ */
+function parseShotsCsv(text){
+  const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+  // la prima riga utile che NON inizia per '#' e' l'header
+  let hi = lines.findIndex(l => !l.startsWith('#'));
+  if(hi < 0) return {shots:[], csvComment:''};
+  const comment = lines.slice(0,hi).join(' ').replace(/^#\s*/,'');
+  const cols = lines[hi].split(',').map(s => s.trim());
+  const num = (v) => (v === '' || v === undefined) ? null : Number(v);
+
+  const shots = [];
+  for(let i=hi+1;i<lines.length;i++){
+    if(lines[i].startsWith('#')) continue;
+    const f = lines[i].split(',');
+    if(f.length < 3) continue;
+    const g = (name) => { const k = cols.indexOf(name); return k<0 ? undefined : f[k].trim(); };
+    shots.push({
+      shot:      num(g('shot')),
+      ts_ms:     num(g('ts_ms')),
+      colpito:   num(g('colpito')) === 1,
+      zona:      num(g('zona')),
+      dist_m:    num(g('dist_m')),
+      elev_deg:  num(g('elev_deg')),
+      arcs:      num(g('arcs')),
+      cant:      cd(num(g('cant_cdeg'))),
+      alzo:      cd(num(g('alzo_cdeg'))),
+      stabile:   num(g('angoli_stabili')) === 1,
+      hold:      cd(num(g('hold_cdeg'))),
+      holdCls:   num(g('hold_class')),
+      jerk:      num(g('release_jerk')),
+      relCls:    num(g('release_class')),
+      burstFile: g('burst_file') || '',
+      burst:     null,
+    });
+  }
+  return {shots, csvComment:comment};
+}
+// centesimi di grado -> gradi, preservando il null
+const cd = (v) => (v === null || v === undefined) ? null : v/100;
+
+/* ── session.txt: chiave=valore, una per riga (la prima e' un titolo) ───── */
+/* Una sessione e' INTERPRETABILE solo se dichiara con che montaggio e' stata
+   registrata. Dal firmware 1.83-F11 session.txt porta mount / mount_lato /
+   off_cant_deg / off_alzo_deg. Prima non c'erano, e su quelle sessioni cant e
+   alzo sono SCAMBIATI (il montaggio era 0 mentre la scheda stava a destra):
+   il 25/07 il "cant" segnava 17 gradi che erano l'alzo.
+   L'app non li corregge da sola — correggere in silenzio un dato di cui non si
+   conosce la provenienza e' peggio che mostrarlo con un avviso. */
+function assettoAffidabile(meta){
+  return meta && meta.mount !== undefined && meta.mount !== '';
+}
+/* MAPPA fra colonne del CSV e GRANDEZZE FISICHE.
+   Le colonne si chiamano cant_cdeg/alzo_cdeg, ma cosa contengono dipende dal
+   montaggio con cui la seduta e' stata registrata:
+
+     sedute F11+ (mount dichiarato)  -> le colonne sono gia' giuste
+     sedute precedenti               -> registrate con la scheda a DESTRA e la
+                                        configurazione a "frontale", quindi
+                                        cant_cdeg contiene l'ALZO e alzo_cdeg
+                                        il CANT
+
+   Il secondo caso non e' un'ipotesi: e' il risultato del DIAG ASSI del 26/07
+   (verdetto mount=2 "destro", margine 36 su soglia 5), confermato dai nove
+   tiri del 25/07 dove la colonna "cant" segna 17,0 gradi con sd 0,72 — una
+   mira tenuta, non un rollio.
+
+   Quindi l'app APPLICA la corrispondenza e usa i nomi veri. Mostrare
+   "atan2(ay,ax)" era prudenza fuori posto: rendeva illeggibile un dato di cui
+   conosciamo la provenienza. Cio' che resta onesto e' DICHIARARE che la
+   corrispondenza e' dedotta, e lo si fa in un avviso — non nei nomi degli assi. */
+/* Le sedute anteriori al firmware F16 hanno hold col segno rovesciato. Dal F16
+   session.txt dichiara `hold_sign=corretto`: l'assenza di quella riga e' il
+   criterio, perche' confrontare stringhe di versione e' fragile. */
+function holdDaInvertire(meta){
+  return !meta || meta.hold_sign !== 'corretto';
+}
+
+function assetto(meta){
+  return assettoAffidabile(meta)
+    ? { alzo: x => x.alzo, cant: x => x.cant, dedotto: false }
+    : { alzo: x => x.cant, cant: x => x.alzo, dedotto: true };
+}
+
+function parseSessionTxt(text){
+  const meta = {};
+  text.split(/\r?\n/).forEach(l => {
+    const k = l.indexOf('=');
+    if(k > 0) meta[l.slice(0,k).trim()] = l.slice(k+1).trim();
+  });
+  return meta;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §5 · PARSER burst_NNNN.bin (burst_format = 1)
+   ─────────────────────────────────────────────────────────────────────────
+   header 16 B: "ABB1" | ver u8 | odr u8 | n u16 | trigger_idx u16 | shot u16
+                | 4 B riservati
+   poi n record da 30 B: seq u16 | ts_us u32 | ax ay az gx gy gz (f32 LE)
+   Array tipizzati per asse invece di un array di oggetti: 672 campioni x 9
+   tiri sono 36 000 numeri, e sei Float32Array costano un decimo della memoria
+   di 6 048 oggetti — oltre a rendere i cicli di calcolo molto piu' rapidi.
+   ══════════════════════════════════════════════════════════════════════════ */
+function parseBurst(buf){
+  const dv = new DataView(buf);
+  if(dv.getUint8(0)!==0x41 || dv.getUint8(1)!==0x42 ||
+     dv.getUint8(2)!==0x42 || dv.getUint8(3)!==0x31) return null;   // "ABB1"
+  const ver  = dv.getUint8(4);
+  const n    = dv.getUint16(6, true);
+  const trig = dv.getUint16(8, true);
+  const shot = dv.getUint16(10, true);
+  const need = 16 + n*30;
+  if(buf.byteLength < need) return null;
+
+  const seq=new Uint16Array(n), ts=new Float64Array(n);
+  const ax=new Float32Array(n), ay=new Float32Array(n), az=new Float32Array(n);
+  const gx=new Float32Array(n), gy=new Float32Array(n), gz=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    const o = 16 + 30*i;
+    seq[i]=dv.getUint16(o,true);
+    ts[i] =dv.getUint32(o+2,true);
+    ax[i] =dv.getFloat32(o+6,true);  ay[i]=dv.getFloat32(o+10,true);
+    az[i] =dv.getFloat32(o+14,true); gx[i]=dv.getFloat32(o+18,true);
+    gy[i] =dv.getFloat32(o+22,true); gz[i]=dv.getFloat32(o+26,true);
+  }
+  // DUE frequenze, due scopi: la misurata per il SEGNALE (spettri, tempi), la
+  // nominale per replicare il FIRMWARE, che dimensiona le sue finestre con
+  // odrToHz(). Confonderle darebbe finestre di lunghezza diversa e numeri che
+  // non coincidono con quelli del dispositivo.
+  const ODR_NOM = {0:112, 1:224, 2:448};
+  return {ver, n, trig, shot, seq, ts, ax, ay, az, gx, gy, gz,
+          fs: burstSampleRate(seq, ts),
+          fsNominale: ODR_NOM[dv.getUint8(5)] || 224};
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §6 · FREQUENZA DI CAMPIONAMENTO REALE — la correzione piu' importante
+        ereditata dalla 1.29.
+   ─────────────────────────────────────────────────────────────────────────
+   La 1.29 usava la MEDIANA dei Δt. Sui burst veri della 1.83 quella scelta
+   sbaglia, e non di poco. Istogramma misurato su burst_0001 (671 intervalli):
+       Δt = 4,0 ms  ->  272 volte
+       Δt = 5,0 ms  ->  391 volte
+   Il tick da 1 ms di FreeRTOS batte contro il periodo ideale e produce due
+   valori alternati. La MEDIANA cade su 5,0 ms e dichiara 200,0 Hz; la media
+   (e lo span, identici qui) danno 217,79 Hz — il valore vero.
+   Un errore dell'8,9% sull'asse delle frequenze: sposta un picco da 15 a 16,4
+   Hz. Su una misura si sarebbe potuto discutere; su nove burst identici a
+   217,7 Hz non c'e' niente da discutere.
+
+   Usiamo lo SPAN (durata totale / intervalli), previa verifica che la
+   sequenza sia continua: se mancasse un campione lo span mentirebbe, e in
+   quel caso ripieghiamo sulla media dei Δt plausibili.
+   ══════════════════════════════════════════════════════════════════════════ */
+function burstSampleRate(seq, ts, fallback=218){
+  const n = ts.length;
+  if(n < 10) return fallback;
+  let continua = true;
+  for(let i=1;i<n;i++){
+    if(((seq[i] - seq[i-1]) & 0xFFFF) !== 1){ continua = false; break; }
+  }
+  if(continua){
+    const span = ts[n-1] - ts[0];
+    if(span > 0){ const fs = (n-1)*1e6/span; if(fs>20 && fs<2000) return fs; }
+  }
+  let s=0, c=0;
+  for(let i=1;i<n;i++){ const d=ts[i]-ts[i-1]; if(d>0 && d<100000){ s+=d; c++; } }
+  if(c<5) return fallback;
+  const fs = 1e6/(s/c);
+  return (fs>20 && fs<2000) ? fs : fallback;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §7 · DSP — FFT radix-2 iterativa (Cooley-Tukey) e spettro di ampiezza
+   ══════════════════════════════════════════════════════════════════════════ */
+function fftRadix2(re, im){
+  const n = re.length;
+  for(let i=1, j=0; i<n; i++){
+    let bit = n >> 1;
+    for(; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if(i < j){ let t=re[i];re[i]=re[j];re[j]=t; t=im[i];im[i]=im[j];im[j]=t; }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = -2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){
+      let cr=1, ci=0;
+      for(let k=0;k<len/2;k++){
+        const ur=re[i+k], ui=im[i+k];
+        const xr=re[i+k+len/2], xi=im[i+k+len/2];
+        const vr=xr*cr - xi*ci, vi=xr*ci + xi*cr;
+        re[i+k]=ur+vr; im[i+k]=ui+vi;
+        re[i+k+len/2]=ur-vr; im[i+k+len/2]=ui-vi;
+        const nr=cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = nr;
+      }
+    }
+  }
+}
+
+/* Spettro di ampiezza a finestra di Hann, con zero-padding a N.
+   ATTENZIONE alla differenza fra due cose che si confondono spesso:
+     · PASSO DEI BIN   = fs/N        -> lo migliora lo zero-padding
+     · RISOLUZIONE VERA = fs/m = 1/T -> la migliora SOLO una finestra piu'
+                                        lunga. Lo zero-padding interpola,
+                                        non aggiunge informazione.
+   Con 1000 ms di finestra post-scocco la risoluzione vera e' ~1 Hz: quattro
+   volte meglio dei 250 ms della 1.69. Il passo dei bin lo portiamo a 0,2 Hz
+   solo per stimare meglio la posizione del picco. */
+function spectrum(x, fs, N=1024){
+  const m = x.length;
+  if(m < 8) return null;
+  let mean=0; for(let i=0;i<m;i++) mean += x[i]; mean /= m;
+  const re = new Float64Array(N), im = new Float64Array(N);
+  let wsum = 0;
+  for(let i=0;i<m;i++){
+    const w = 0.5 - 0.5*Math.cos(2*Math.PI*i/(m-1));
+    wsum += w; re[i] = (x[i]-mean)*w;
+  }
+  fftRadix2(re, im);
+  const half = N>>1;
+  const freqs = new Float64Array(half), mag = new Float64Array(half);
+  for(let k=0;k<half;k++){
+    freqs[k] = k*fs/N;
+    mag[k]   = 2*Math.hypot(re[k], im[k])/wsum;
+  }
+  return {freqs, mag, resHz: fs/m, binHz: fs/N, m};
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §8 · STATISTICA
+   ══════════════════════════════════════════════════════════════════════════ */
+const mean = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
+function sd(a){
+  if(a.length < 2) return null;
+  const m = mean(a);
+  return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(a.length-1));
+}
+
+/* Distanza di Mahalanobis semplificata (diagonale): ogni metrica viene
+   standardizzata sulla propria deviazione di sessione e poi si prende la
+   norma. Non uso la matrice di covarianza piena perche' con 9 tiri e 4
+   variabili sarebbe singolare o quasi: stimare 10 covarianze da 9 punti
+   produce numeri che sembrano precisi e non lo sono. La versione diagonale
+   e' onesta su quello che i dati possono sostenere. */
+function mahalanobis(shots){
+  const keys = ['cant','alzo','hold','jerk'];
+  const stat = {};
+  keys.forEach(k => {
+    const v = shots.map(s=>s[k]).filter(x=>x!==null && x!==undefined);
+    stat[k] = {m: mean(v), s: sd(v)};
+  });
+  return shots.map(s => {
+    let acc=0, used=0;
+    keys.forEach(k => {
+      const st = stat[k];
+      if(s[k]===null || s[k]===undefined || !st.s || st.s<1e-9) return;
+      const z = (s[k]-st.m)/st.s; acc += z*z; used++;
+    });
+    return used ? Math.sqrt(acc*keys.length/used) : null;   // scala a 4 dimensioni
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §9 · MOTORE GRAFICO — canvas 2D, nessuna libreria.
+   plot() disegna assi + serie; le funzioni specialistiche (quadrante,
+   traccia) hanno il loro disegno perche' non sono cartesiane.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CSSVAR = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function cvInit(cv, hCss){
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 400;
+  const h = hCss || cv.height;
+  cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  cv.style.height = h+'px';
+  const g = cv.getContext('2d');
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,w,h);
+  return {g, W:w, H:h};
+}
+
+/* cfg: {xMin,xMax,yMin,yMax,xLabel,yLabel,
+         series:[{type:'line'|'bar'|'dots', color, xs, ys, width, alpha}],
+         bands:[{y0,y1,color}], vbands:[{x0,x1,color}],
+         vlines:[{x,color,label,dash}], hlines:[{y,color,label,dash}],
+         xTicks, yTicks, yFmt, xFmt}  */
+function plot(cv, cfg){
+  const H = cfg.height || 230;
+  const {g,W} = cvInit(cv, H);
+  const PL=44, PR=10, PT=12, PB=26;
+  const x0=PL, x1=W-PR, y0=PT, y1=H-PB;
+  const {xMin,xMax,yMin,yMax} = cfg;
+  const X = v => x0 + (v-xMin)/(xMax-xMin||1)*(x1-x0);
+  const Y = v => y1 - (v-yMin)/(yMax-yMin||1)*(y1-y0);
+
+  // fondo
+  g.fillStyle = CSSVAR('--bg2'); g.fillRect(0,0,W,H);
+
+  // bande orizzontali (es. ±1σ)
+  (cfg.bands||[]).forEach(b=>{
+    g.fillStyle=b.color; g.fillRect(x0, Y(b.y1), x1-x0, Math.max(1,Y(b.y0)-Y(b.y1)));
+  });
+  // bande verticali (es. finestra dei 15 ms)
+  (cfg.vbands||[]).forEach(b=>{
+    g.fillStyle=b.color; g.fillRect(X(b.x0), y0, Math.max(1,X(b.x1)-X(b.x0)), y1-y0);
+  });
+
+  // griglia
+  const nY = cfg.yTicks||5, nX = cfg.xTicks||6;
+  g.strokeStyle = CSSVAR('--bg3'); g.lineWidth = 1;
+  g.font = '9px '+CSSVAR('--mono').split(',')[0].replace(/'/g,'');
+  g.fillStyle = CSSVAR('--text3');
+  for(let i=0;i<=nY;i++){
+    const v = yMin + (yMax-yMin)*i/nY, y = Y(v);
+    g.beginPath(); g.moveTo(x0,y); g.lineTo(x1,y); g.stroke();
+    g.textAlign='right'; g.textBaseline='middle';
+    g.fillText(cfg.yFmt ? cfg.yFmt(v) : v.toFixed(1), x0-5, y);
+  }
+  for(let i=0;i<=nX;i++){
+    const v = xMin + (xMax-xMin)*i/nX, x = X(v);
+    g.beginPath(); g.moveTo(x,y0); g.lineTo(x,y1); g.stroke();
+    g.textAlign='center'; g.textBaseline='top';
+    g.fillText(cfg.xFmt ? cfg.xFmt(v) : v.toFixed(0), x, y1+5);
+  }
+
+  // linee guida
+  (cfg.hlines||[]).forEach(l=>{
+    g.save(); g.strokeStyle=l.color; g.lineWidth=1;
+    if(l.dash) g.setLineDash([4,3]);
+    g.beginPath(); g.moveTo(x0,Y(l.y)); g.lineTo(x1,Y(l.y)); g.stroke(); g.restore();
+    if(l.label){ g.fillStyle=l.color; g.textAlign='left'; g.textBaseline='bottom';
+      g.fillText(l.label, x0+4, Y(l.y)-2); }
+  });
+  (cfg.vlines||[]).forEach(l=>{
+    g.save(); g.strokeStyle=l.color; g.lineWidth=1.4;
+    if(l.dash) g.setLineDash([4,3]);
+    g.beginPath(); g.moveTo(X(l.x),y0); g.lineTo(X(l.x),y1); g.stroke(); g.restore();
+    if(l.label){ g.fillStyle=l.color; g.textAlign='left'; g.textBaseline='top';
+      g.fillText(l.label, X(l.x)+3, y0+2); }
+  });
+
+  // serie
+  g.save();
+  g.beginPath(); g.rect(x0,y0,x1-x0,y1-y0); g.clip();
+  (cfg.series||[]).forEach(s=>{
+    g.globalAlpha = s.alpha!==undefined ? s.alpha : 1;
+    if(s.type==='bar'){
+      g.fillStyle = s.color;
+      const bw = Math.max(1, (x1-x0)/s.xs.length*0.9);
+      for(let i=0;i<s.xs.length;i++){
+        const h = Y(0)-Y(s.ys[i]);
+        g.fillRect(X(s.xs[i])-bw/2, Y(s.ys[i]), bw, Math.max(0.5,h));
+      }
+    } else if(s.type==='dots'){
+      g.fillStyle = s.color;
+      for(let i=0;i<s.xs.length;i++){
+        if(s.ys[i]===null) continue;
+        g.beginPath(); g.arc(X(s.xs[i]), Y(s.ys[i]), s.width||3, 0, Math.PI*2); g.fill();
+      }
+    } else {
+      g.strokeStyle = s.color; g.lineWidth = s.width||1.2;
+      g.lineJoin='round'; g.beginPath();
+      let started=false;
+      for(let i=0;i<s.xs.length;i++){
+        if(s.ys[i]===null || !isFinite(s.ys[i])){ started=false; continue; }
+        const px=X(s.xs[i]), py=Y(s.ys[i]);
+        if(!started){ g.moveTo(px,py); started=true; } else g.lineTo(px,py);
+      }
+      g.stroke();
+    }
+  });
+  g.restore();
+  g.globalAlpha=1;
+
+  // cornice
+  g.strokeStyle = CSSVAR('--border'); g.lineWidth=1;
+  g.strokeRect(x0+0.5, y0+0.5, x1-x0-1, y1-y0-1);
+
+  if(cfg.xLabel){ g.fillStyle=CSSVAR('--text3'); g.textAlign='right'; g.textBaseline='bottom';
+    g.fillText(cfg.xLabel, x1, H-1); }
+  if(cfg.yLabel){ g.save(); g.translate(9, y0+2); g.rotate(-Math.PI/2);
+    g.fillStyle=CSSVAR('--text3'); g.textAlign='right'; g.textBaseline='top';
+    g.fillText(cfg.yLabel, 0, 0); g.restore(); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §11 · TRACCIA 2D — portata dalla 1.29 (v1.4), stessa fisica.
+     pitch : filtro complementare gyro+accel (la gravita' lo osserva)
+     yaw   : integrazione pura del rate proiettato sulla verticale vera,
+             perche' nessun accelerometro puo' vedere una rotazione attorno
+             alla gravita'. Il bias si stima sui campioni pre-scocco fermi
+             (ZUPT): e' l'unica difesa contro la deriva.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* TRACCIA — allineata all'analizzatore (archbb_dsp.traccia).
+   Tre differenze rispetto alla versione 1.29 che stava qui:
+
+   1. INTEGRAZIONE PURA, non filtro complementare. Con alpha=0,98 la fase di
+      mira usciva a +8,09 gradi dal riferimento con 2,69 di escursione; col
+      giroscopio puro sta a +0,26 con 0,19. L'accelerometro in mira oscilla di
+      14 gradi che sono accelerazione LINEARE, non assetto, e il complementare
+      la lascia passare — trascinato dal rilascio prima ancora del trigger.
+
+   2. BIAS DALLA FINESTRA CALMA, non dal criterio |gyro|<15 dps: quella soglia
+      lascia dentro la trazione, dove la rotazione e' vera e non e' bias.
+
+   3. ORIGINE SULLA MIRA, non sullo scocco. Il rilascio comincia ~55 ms prima
+      che il trigger scatti: centrando sullo scocco il puntamento finiva
+      spostato di 5 gradi di lato.
+
+   E il SEGNO del pitch e' negato: cgy = -rgz, quindi l'integrale di gy e'
+   l'alzo rovesciato. */
+/* ORIENTAMENTO — rotazione di 90 gradi ORARI, scelta dell'arciere.
+   Deve restare allineato ad archbb_dsp.TRACCIA_SCAMBIA_ASSI dell'analizzatore:
+   due strumenti che disegnano la stessa traccia in due versi sarebbero peggio
+   di qualunque verso sbagliato. */
+const TRACCIA_RUOTA_90 = true;
+
+/* (orizzontale, verticale) gia' orientate. Un solo punto in cui la rotazione
+   viene applicata: chi disegna non deve saperne nulla. */
+function serieTraccia(tr){
+  return TRACCIA_RUOTA_90 ? {h: tr.pitch, v: tr.yaw.map(x => -x)}
+                          : {h: tr.yaw,   v: tr.pitch};
+}
+
+function computeTrace(b){
+  const n=b.n, trig=b.trig;
+  const cw = finestraCalma(b);
+  const a = cw ? cw[0] : 0, z = cw ? cw[1] : Math.max(1, trig-50);
+  const nc = Math.max(1, z-a);
+
+  let bgx=0,bgy=0,bgz=0, mAx=0,mAy=0,mAz=0;
+  for(let i=a;i<z;i++){ bgx+=b.gx[i]; bgy+=b.gy[i]; bgz+=b.gz[i];
+                        mAx+=b.ax[i]; mAy+=b.ay[i]; mAz+=b.az[i]; }
+  bgx/=nc; bgy/=nc; bgz/=nc; mAx/=nc; mAy/=nc; mAz/=nc;
+  const gN = Math.hypot(mAx,mAy,mAz) || 1;
+  const ux=mAx/gN, uy=mAy/gN, uz=mAz/gN;
+
+  const pitch=new Float64Array(n), yaw=new Float64Array(n);
+  const dtNom = 1/b.fs;
+  let p=0, y=0;
+  for(let i=1;i<n;i++){
+    let dt=(b.ts[i]-b.ts[i-1])/1e6;
+    if(!(dt>0 && dt<0.1)) dt = dtNom;
+    p += -(b.gy[i]-bgy)*dt;                       // segno: cgy = -rgz
+    const yr = (b.gx[i]-bgx)*ux + (b.gy[i]-bgy)*uy + (b.gz[i]-bgz)*uz;
+    y += signYaw * yr * dt;
+    pitch[i]=p; yaw[i]=y;
+  }
+  // origine sulla MIRA (media della finestra calma), non sullo scocco
+  let mp=0,my2=0;
+  for(let i=a;i<z;i++){ mp+=pitch[i]; my2+=yaw[i]; }
+  mp/=nc; my2/=nc;
+  for(let i=0;i<n;i++){ pitch[i]-=mp; yaw[i]-=my2; }
+  return {pitch, yaw, biasUsed: nc};
+}
+
+function drawTrace(cv, b){
+  const H=330; const {g,W}=cvInit(cv,H);
+  g.fillStyle=CSSVAR('--bg2'); g.fillRect(0,0,W,H);
+  const CX=W/2, CY=H/2, PAD=30, RMAX=Math.min(CX-PAD, CY-PAD);
+
+  const t = computeTrace(b);
+  const S = serieTraccia(t);   // gia' orientate: vedi TRACCIA_RUOTA_90
+  const trig=b.trig, fs=b.fs;
+  const i0 = Math.max(0, trig - Math.round(0.60*fs));      // 600 ms prima
+  const i1 = Math.min(b.n-1, trig + Math.round(0.35*fs));  // 350 ms dopo
+  let R=0.5;
+  for(let i=i0;i<=i1;i++) R = Math.max(R, Math.hypot(S.h[i], S.v[i]));
+  R = Math.ceil(R*2)/2;
+
+  // griglia polare
+  g.strokeStyle=CSSVAR('--bg3'); g.lineWidth=0.8;
+  [0.25,0.5,0.75,1].forEach(r=>{ g.beginPath(); g.arc(CX,CY,RMAX*r,0,Math.PI*2); g.stroke(); });
+  g.strokeStyle=CSSVAR('--border'); g.lineWidth=1;
+  g.beginPath(); g.moveTo(CX,PAD); g.lineTo(CX,H-PAD); g.stroke();
+  g.beginPath(); g.moveTo(PAD,CY); g.lineTo(W-PAD,CY); g.stroke();
+  g.font='9px monospace'; g.fillStyle=CSSVAR('--text3');
+  g.textAlign='center'; g.fillText('alto', CX, PAD-6);
+  g.fillText('basso', CX, H-PAD+14);
+  g.textAlign='right'; g.fillText('sinistra', PAD+30, CY-6);
+  g.textAlign='left';  g.fillText('destra', W-PAD-30, CY-6);
+  g.textAlign='center'; g.fillStyle=CSSVAR('--text3');
+  g.fillText('scala '+R.toFixed(1)+'°', CX, H-8);
+
+  const PX = v => CX + v/R*RMAX, PY = v => CY - v/R*RMAX;
+  const seg = (a,z,col,w)=>{
+    g.strokeStyle=col; g.lineWidth=w; g.lineJoin='round'; g.beginPath();
+    for(let i=a;i<=z;i++){ const x=PX(S.h[i]), y=PY(S.v[i]);
+      if(i===a) g.moveTo(x,y); else g.lineTo(x,y); }
+    g.stroke();
+  };
+  const iAim = Math.max(i0, trig - Math.round(0.25*fs));
+  seg(i0, iAim, '#4488ff', 1);                       // pre-mira
+  seg(iAim, trig, CSSVAR('--grn'), 1.6);             // puntamento
+  const i15 = Math.min(b.n-1, trig + Math.round(0.015*fs));
+  seg(trig, i15, CSSVAR('--amb'), 2.6);              // freccia ancora sulla corda
+  seg(i15, i1, CSSVAR('--red'), 1.4);                // follow-through
+
+  // marker: scocco e +15 ms
+  g.beginPath(); g.arc(PX(S.h[trig]), PY(S.v[trig]), 4, 0, Math.PI*2);
+  g.fillStyle=CSSVAR('--amb'); g.fill();
+  g.beginPath(); g.arc(PX(S.h[i15]), PY(S.v[i15]), 4.5, 0, Math.PI*2);
+  g.strokeStyle='#fff'; g.lineWidth=1.6; g.stroke();
+
+  return t;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §11bis · METRICHE DI FASE calcolate dai campioni
+   ─────────────────────────────────────────────────────────────────────────
+   Solo quelle di cui ho la definizione ESATTA, ripresa dallo sviluppo della
+   1.69. Le altre restano dichiarate mancanti: inventare una formula e una
+   soglia per riempire una casella e' il modo piu' rapido di produrre numeri
+   che sembrano misure e non lo sono.
+
+   FERMEZZA (Stability Score)   100 * exp(-rms / TAU),  TAU = 5 dps
+     rms del rate giroscopico nella finestra calma, corretto del bias.
+     Il decadimento esponenziale sostitui' 100*(1-rms/div) perche' quello
+     saturava: con div=20 lo score stava sempre attorno a 80. TAU = 5 fu
+     scelto perche' MASSIMIZZA la dispersione dello score (sd 13,2 misurata),
+     portando il CV da 0,13 a 0,31 — 2,4 volte piu' discriminante.
+
+   TORSIONE (Release Torque)    integrale di -(gz - bias) su [trig-100ms, +15ms]
+     Solo giroscopio: nell'impatto l'accelerometro e' inservibile.
+     Positivo = antiorario/sinistra, negativo = orario/destra (test statico).
+     La finestra finisce a +15 ms perche' li' la freccia lascia la corda:
+     dopo, la torsione non la devia piu'.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* ── RADDRIZZAMENTO DELLE ONDE ───────────────────────────────────────────
+   I burst delle sedute anteriori alla F11 sono salvati nel frame canonico di
+   `mount = 0`, mentre la scheda era fisicamente a destra (`mount = 2`).
+   Il passaggio da uno all'altro si semplifica:
+
+     salvato = (x,  y, -z_grezzo)          M0 + flip
+     voluto  = (x, -z_grezzo, -y)          M2 + flip
+     voluto in funzione del salvato = (x, z_salv, -y_salv)   = M2 sul salvato
+
+   Quindi basta applicare M2 ai campioni gia' salvati. Verificato sui nove tiri
+   del 25/07: dopo il raddrizzamento il cant sta fra -2,4 e +1,7 gradi
+   (rollio involontario) e l'alzo a -17 (punta in basso, sagoma 3D a terra).
+
+   PERCHE' FARLO E NON DIRE "riflasha e ritira"
+     Le sedute gia' registrate non si rifanno. Se l'informazione per
+     raddrizzarle c'e' — e c'e', il DIAG l'ha stabilita — usarla e' il minimo.
+     Il riflash serve per il DISPOSITIVO (display corretto durante il tiro,
+     taratura del montaggio, session.txt che si autodescrive), non per rileggere
+     quello che hai gia' in mano. */
+function raddrizza(b){
+  const n = b.n;
+  const ay = new Float32Array(n), az = new Float32Array(n);
+  const gy = new Float32Array(n), gz = new Float32Array(n);
+  for(let i=0;i<n;i++){
+    ay[i] =  b.az[i]; az[i] = -b.ay[i];
+    gy[i] =  b.gz[i]; gz[i] = -b.gy[i];
+  }
+  return Object.assign({}, b, {ay, az, gy, gz, raddrizzato:true});
+}
+
+/* Il burst da USARE per il tiro x, gia' nel frame giusto. Il risultato viene
+   messo in cache sull'oggetto: raddrizzare 672 campioni a ogni ridisegno
+   sarebbe sprecato, e la sorgente non cambia. */
+function burstDi(x){
+  if(!x || !x.burst) return null;
+  const ss = curSession();
+  if(!ss || !assetto(ss.meta).dedotto) return x.burst;
+  if(!x._bR) x._bR = raddrizza(x.burst);
+  return x._bR;
+}
+
+/* HOLD ricalcolato dai campioni, con l'algoritmo del firmware: integrale di
+   (gy - bias) per 900 ms dallo scocco, a dt REALE, bias dalla finestra calma.
+   Serve sulle sedute anteriori alla F11: il valore nel CSV e' stato calcolato
+   a bordo sull'asse sbagliato e non e' recuperabile, questo si'.
+   Replica validata in Python contro il dispositivo: scarto massimo 0,004 gradi. */
+const HOLD_MS_APP = 900, DT_MAX_S = 0.05;
+/* Soglie 4 e 8 gradi, le stesse di shot_angles.h: circa 2x e 4x il p95 del
+   rumore misurato sulla 1.69. Devono restare allineate al firmware. */
+const HOLD_SOGLIE_APP = [4.0, 8.0];
+function classeHold(v){
+  const a = Math.abs(v);
+  return a <= HOLD_SOGLIE_APP[0] ? 0 : a <= HOLD_SOGLIE_APP[1] ? 1 : (v < 0 ? 2 : 3);
+}
+function calcHold(b){
+  const cw = finestraCalma(b); if(!cw) return null;
+  const [a,z] = cw;
+  let bias = 0; for(let i=a;i<z;i++) bias += b.gy[i]; bias /= (z-a);
+  const t0 = b.ts[b.trig];
+  let acc = 0, usati = 0;
+  for(let i=b.trig;i<b.n-1;i++){
+    if(b.ts[i] - t0 > HOLD_MS_APP*1000) break;   // test sull'estremo SINISTRO
+    const dt = (b.ts[i+1] - b.ts[i]) / 1e6;
+    if(dt <= 0 || dt > DT_MAX_S) continue;
+    acc += 0.5 * ((b.gy[i]-bias) + (b.gy[i+1]-bias)) * dt;
+    usati++;
+  }
+  /* SEGNO — corretto insieme al firmware F16 dopo l'ispezione fisica del chip.
+     Assi reali nel montaggio attuale: X=giu, Y=asse freccia, Z=destra. L'alzo
+     ruota attorno a Z, e il montaggio da cgy = -rgz: l'integrale di gy e'
+     l'alzo col segno rovesciato. Senza la negazione hold usciva POSITIVO
+     quando il braccio calava — misurato +1,78 di media su 55 tiri veri,
+     mentre l'arciere conferma che cala. */
+  return usati >= 20 ? -acc : null;
+}
+
+const TAU_FERMEZZA_DPS = 5.0;
+
+/* Finestra pre-scocco piu' ferma: stessa logica del firmware (guard 50 ms,
+   ampiezza 200 ms, punteggio |media|a|-g| + sd, si minimizza). Serve sia alla
+   fermezza sia al bias per la torsione: una sola funzione, un solo criterio. */
+function finestraCalma(b){
+  const fs = b.fsNominale || 224;
+  const guard = Math.trunc(0.050 * fs), win = Math.trunc(0.200 * fs);
+  const weMax = b.trig - guard;
+  if(weMax < win || win < 2) return null;
+  const mag = new Float64Array(b.n);
+  for(let i=0;i<b.n;i++) mag[i] = Math.hypot(b.ax[i], b.ay[i], b.az[i]);
+  let c1 = 0, c2 = 0;
+  for(let i=0;i<win;i++){ c1 += mag[i]; c2 += mag[i]*mag[i]; }
+  let best = null, bestScore = Infinity;
+  for(let we = win; we <= weMax; we++){
+    if(we > win){ const o = mag[we-win-1], nv = mag[we-1];
+                  c1 += nv - o; c2 += nv*nv - o*o; }
+    const m = c1/win;
+    const v = Math.max(0, (c2 - win*m*m) / (win - 1));
+    const sc = Math.abs(m - 9.81) + Math.sqrt(v);
+    if(sc < bestScore){ bestScore = sc; best = [we-win, we]; }
+  }
+  return best;
+}
+
+function calcFermezza(b){
+  const cw = finestraCalma(b); if(!cw) return null;
+  const [a,z] = cw, n = z-a;
+  if(n < 5) return null;
+  let bx=0, by=0, bz=0;
+  for(let i=a;i<z;i++){ bx+=b.gx[i]; by+=b.gy[i]; bz+=b.gz[i]; }
+  bx/=n; by/=n; bz/=n;
+  let sq = 0;
+  for(let i=a;i<z;i++){
+    const dx=b.gx[i]-bx, dy=b.gy[i]-by, dz=b.gz[i]-bz;
+    sq += dx*dx + dy*dy + dz*dz;
+  }
+  const rms = Math.sqrt(sq/n);
+  return { score: Math.round(100*Math.exp(-rms/TAU_FERMEZZA_DPS)), rms };
+}
+
+function calcTorsione(b){
+  const cw = finestraCalma(b); if(!cw) return null;
+  const [a,z] = cw;
+  let bias = 0; for(let i=a;i<z;i++) bias += b.gz[i]; bias /= (z-a);
+  const t0 = b.ts[b.trig];
+  let acc = 0, usati = 0;
+  for(let i=0;i<b.n-1;i++){
+    const el = b.ts[i] - t0;
+    if(el < -100000) continue;          // prima di -100 ms
+    if(el >  15000)  break;             // oltre +15 ms: freccia gia' partita
+    const dt = (b.ts[i+1] - b.ts[i]) / 1e6;
+    if(dt <= 0 || dt > 0.05) continue;
+    acc += -0.5 * ((b.gz[i]-bias) + (b.gz[i+1]-bias)) * dt;
+    usati++;
+  }
+  return usati >= 10 ? acc : null;
+}
+
+/* Media di una metrica sui tiri che hanno il burst. Ritorna null se nessuno:
+   una media su zero tiri non e' zero, e' assenza di dato. */
+function mediaDaBurst(shots, fn){
+  const v = [];
+  for(const x of shots){ if(!x.burst) continue; const r = fn(x.burst); if(r!==null) v.push(r); }
+  return v.length ? { media: mean(v), n: v.length } : null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §12 · RENDERING DELLE SCHERMATE
+   ══════════════════════════════════════════════════════════════════════════ */
+function curSession(){ return DB.current ? DB.sessions[DB.current] : null; }
+function hasBursts(){ const s=curSession(); return !!(s && s.shots.some(x=>x.burst)); }
+
+function showTab(name){
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('active', p.id==='tab-'+name));
+  if(name==='dash')    renderDash();
+  if(name==='tiri')    renderTiri();
+  if(name==='onda')    renderOnda();
+  if(name==='fft')     renderFft();
+  if(name==='traccia') renderTraccia();
+}
+
+function refreshLocks(){
+  const bursts = hasBursts();
+  ['onda','fft','traccia'].forEach(n =>
+    document.querySelector('.tab[data-tab="'+n+'"]').classList.toggle('locked', !bursts));
+}
+
+/* ── Navigatore dei tiri, condiviso ──────────────────────────────────────
+   Il menu si ripopola solo se il numero di tiri e' cambiato: rigenerarlo a
+   ogni render azzererebbe la selezione dell'utente mentre la sta usando. */
+function aggiornaNavigatore(sh){
+  const sel = document.getElementById('navSel');
+  const pos = document.getElementById('navPos');
+  if(!sel) return;
+  if(sel.options.length !== sh.length){
+    sel.innerHTML = sh.map((x,i)=>
+      '<option value="'+i+'">tiro '+(x.shot!==null?x.shot:(i+1))+'</option>').join('');
+  }
+  sel.value = String(selShot);
+  const x = sh[selShot];
+  if(pos){
+    const zn = x.colpito ? (x.zona===4 ? 'centro' : 'zona '+x.zona) : 'fuori';
+    pos.textContent = (selShot+1)+' di '+sh.length+' · '+zn+
+                      (x.burst ? ' · onda' : '');
+  }
+  const p = document.getElementById('navPrev'), n = document.getElementById('navNext');
+  if(p) p.disabled = (selShot <= 0);
+  if(n) n.disabled = (selShot >= sh.length-1);
+}
+
+function stepShot(d){
+  const ss = curSession(); if(!ss || !ss.shots.length) return;
+  const i = Math.max(0, Math.min(ss.shots.length-1, selShot + d));
+  if(i !== selShot) pickShot(i);
+}
+
+/* ── QUADRO ─────────────────────────────────────────────────────────────── */
+function renderDash(){
+  const s = curSession();
+  document.getElementById('dashEmpty').style.display = s ? 'none' : '';
+  document.getElementById('dashBody').style.display  = s ? '' : 'none';
+  if(!s) return;
+
+  const sh = s.shots;
+  document.getElementById('dashName').textContent = s.name;
+  document.getElementById('kShots').textContent = sh.length;
+
+  const dists = sh.map(x=>x.dist_m).filter(x=>x);
+  const dMode = dists.length ? mode(dists) : null;
+  document.getElementById('kDist').innerHTML = dMode ? dMode+'<small> m</small>' : '–';
+
+  const centri = sh.filter(x=>x.colpito && x.zona===4).length;
+  document.getElementById('kCenter').innerHTML =
+    sh.length ? centri+'<small>/'+sh.length+'</small>' : '–';
+
+  const lato = s.meta.mount_lato || (assettoAffidabile(s.meta) ? ('mount '+s.meta.mount) : '—');
+  const offc = s.meta.off_cant_deg, offa = s.meta.off_alzo_deg;
+  const tarato = (offc !== undefined && (Math.abs(parseFloat(offc))>0.005 ||
+                                          Math.abs(parseFloat(offa))>0.005));
+  document.getElementById('dashMeta').innerHTML =
+    'firmware <code>'+(s.meta.fw||'?')+'</code> · ODR dichiarato '+
+    (s.meta.odr_hz||'?')+' Hz · '+(s.meta.ended_datetime||'data non registrata')+
+    '<br>montaggio <b>'+lato+'</b> · taratura '+
+    (offc === undefined ? 'non dichiarata'
+      : tarato ? ('cant '+parseFloat(offc).toFixed(2)+'° alzo '+parseFloat(offa).toFixed(2)+'°')
+               : 'non eseguita') +
+    ' · sorgente '+srcBadge(s.source);
+
+  // ── LE TRE FASI — di UN TIRO, con il riferimento di sessione sotto ──────
+  //  Le schermate della 1.69 mostrano le tre fasi del tiro SELEZIONATO, non la
+  //  media della seduta: "FERMEZZA 51" e' quel tiro li'. La media da sola non
+  //  dice quale tiro sistemare, ed e' proprio quello che le tre fasi servono a
+  //  dire. Sotto ogni numero resta il riferimento di seduta, cosi' si vede in
+  //  un colpo d'occhio se il tiro e' nella norma o fuori.
+  if(selShot >= sh.length) selShot = 0;
+  const t = sh[selShot];
+  aggiornaNavigatore(sh);
+  const av = document.getElementById('dashAvviso');
+  if(av) av.style.display = assetto(s.meta).dedotto ? '' : 'none';
+
+  // Accesso DIFENSIVO al DOM. Un id sbagliato faceva lanciare
+  // getElementById(...).textContent su null, e l'eccezione uccideva l'intero
+  // renderDash: la dashboard restava vuota senza dire perche'. Adesso una
+  // pillola mancante resta vuota e il resto si disegna comunque; l'errore
+  // finisce in console invece che nel silenzio.
+  const el_ = id => { const e = document.getElementById(id);
+                      if(!e) console.warn('ArchBB: elemento assente ->', id);
+                      return e; };
+  const na  = (el,txt)=>{ const e=el_(el), r=el_(el+'R');
+                          if(e){ e.className='v na'; e.textContent=txt; e.style.color=''; }
+                          if(r) r.textContent=''; };
+  const val = (el,html,rif,colore)=>{ const e=el_(el), r=el_(el+'R');
+                          if(e){ e.className='v'; e.innerHTML=html;
+                                 e.style.color = colore || ''; }
+                          if(r) r.textContent = rif || ''; };
+  const rifAdd = (el,pre)=>{ const r=el_(el+'R');
+                             if(r) r.textContent = pre+' · '+r.textContent; };
+  // Riferimento: media e sd della seduta sulla stessa grandezza.
+  const rif = (vals,dec,unita)=>{
+    const v=vals.filter(x=>x!==null&&x!==undefined);
+    if(v.length<2) return '';
+    const m=mean(v), d=sd(v);
+    return 'seduta '+m.toFixed(dec)+' ± '+d.toFixed(dec)+(unita||'')+'  n='+v.length;
+  };
+  const mancano = [];
+
+  // ── 1 · MIRA ──
+  const fermTutti = sh.map(x=>{ const b=burstDi(x); if(!b) return null;
+                                const r=calcFermezza(b); return r?r.score:null; });
+  if(burstDi(t)){
+    const f = calcFermezza(burstDi(t));
+    if(f) val('mFerm', f.score+'<small>/100</small>', rif(fermTutti,0,''));
+    else  na('mFerm','non calcolabile');
+  } else { na('mFerm','serve l\u0027onda'); mancano.push('fermezza'); }
+
+  const A = assetto(s.meta);
+  const alzi = sh.map(A.alzo);
+  const va = A.alzo(t);
+  if(va!==null && va!==undefined)
+    val('mCant', (va>=0?'+':'')+va.toFixed(1)+'<small> °</small>', rif(alzi,2,'°'));
+  else na('mCant','—');
+
+  na('mXi','non portata'); mancano.push('ξ consistenza');
+
+  // ── 2 · RILASCIO ──
+  const CLS_REL = ['pulito','medio','strappo'];
+  const COL_REL = ['var(--grn)','var(--amb)','var(--red)'];
+  if(t.jerk!==null){
+    const c = t.relCls;
+    val('mPul', t.jerk+'<small> m/s³</small>', rif(sh.map(x=>x.jerk),0,''),
+        (c!==null&&c!==undefined)?COL_REL[c]:null);
+    if(c!==null&&c!==undefined) rifAdd('mPul', CLS_REL[c]);
+  } else na('mPul','—');
+
+  na('mNet','non portata'); mancano.push('nettezza scocco');
+
+  const torTutti = sh.map(x=>{ const b=burstDi(x); return b?calcTorsione(b):null; });
+  if(burstDi(t)){
+    const to = calcTorsione(burstDi(t));
+    if(to!==null) val('mTor', (to>=0?'+':'')+to.toFixed(1)+'<small> °</small>',
+                      rif(torTutti,2,'°'));
+    else na('mTor','non calcolabile');
+  } else { na('mTor','serve l\u0027onda'); mancano.push('torsione'); }
+
+  // ── 3 · TENUTA ──
+  const CLS_HOLD = ['tenuto','lieve','abbassato','alzato'];
+  const COL_HOLD = ['var(--grn)','var(--amb)','var(--red)','var(--amb)'];
+  // Sulle sedute anteriori alla F11 il valore nel CSV e' stato calcolato a
+  // bordo sull'asse sbagliato: si ricalcola dai campioni raddrizzati.
+  const ric = A.dedotto;
+  const inv = holdDaInvertire(s.meta);
+  const holdDi = x => {
+    if(ric){ const b = burstDi(x); return b ? calcHold(b) : null; }
+    if(x.hold === null || x.hold === undefined) return null;
+    return inv ? -x.hold : x.hold;   // sedute pre-F16: segno rovesciato
+  };
+  const vh = holdDi(t);
+  if(vh !== null && vh !== undefined){
+    const c = ric ? classeHold(vh) : t.holdCls;
+    val('mHold', (vh>=0?'+':'')+vh.toFixed(1)+'<small> °</small>',
+        rif(sh.map(holdDi),2,'°'),
+        (c!==null&&c!==undefined)?COL_HOLD[c]:null);
+    if(c!==null&&c!==undefined) rifAdd('mHold', CLS_HOLD[c] + (ric ? ' (ricalc.)' : ''));
+  } else na('mHold', ric ? 'serve l\u0027onda' : '—');
+
+  na('mFT','non portata'); mancano.push('follow-through');
+
+  // Cosa manca, e perche'. Dichiararlo e' meglio che riempire la casella con
+  // una formula inventata: un numero che sembra una misura e non lo e' fa piu'
+  // danno di una casella vuota.
+  const box = document.getElementById('mancanti');
+  const perOnda = mancano.filter(m => ['fermezza','torsione'].includes(m));
+  const nonPortate = mancano.filter(m => !perOnda.includes(m));
+  let txt = '';
+  if(perOnda.length) txt += '<b>'+perOnda.join(' e ')+'</b>: si calcolano dai '
+    + 'campioni. Apri la cartella <code>SESS_…</code> dalla microSD e compaiono.<br><br>';
+  if(nonPortate.length) txt += '<b>'+nonPortate.join(', ')+'</b>: definite sulla 1.69 '
+    + 'ma non ancora portate qui. Le porto quando ho la definizione esatta di '
+    + 'normalizzazione e soglie — riempire la casella con una formula plausibile '
+    + 'darebbe un numero che sembra una misura senza esserlo.';
+  box.innerHTML = txt; box.style.display = txt ? '' : 'none';
+
+  drawClasses(sh);
+}
+function mode(a){
+  const c={}; let best=a[0], n=0;
+  a.forEach(v=>{ c[v]=(c[v]||0)+1; if(c[v]>n){n=c[v];best=v;} });
+  return best;
+}
+function srcBadge(src){
+  const b=[];
+  if(src.includes('ble')) b.push('<span class="badge ble">BLE</span>');
+  if(src.includes('sd'))  b.push('<span class="badge sd">SD</span>');
+  return b.join(' ');
+}
+
+function drawClasses(sh){
+  const cv = document.getElementById('cvClasses');
+  const H=180; const {g,W}=cvInit(cv,H);
+  g.fillStyle=CSSVAR('--bg2'); g.fillRect(0,0,W,H);
+  const rows = [
+    {lab:'RILASCIO', get:x=>x.relCls,
+     cols:[CSSVAR('--grn'),CSSVAR('--amb'),CSSVAR('--red'),CSSVAR('--text3')],
+     names:['pulito','medio','strappo','n/d']},
+    {lab:'TENUTA',   get:x=>x.holdCls,
+     cols:[CSSVAR('--grn'),CSSVAR('--amb'),CSSVAR('--red'),CSSVAR('--amb'),CSSVAR('--text3')],
+     names:['tenuto','lieve','abbassato','alzato','n/d']},
+  ];
+  const PL=86, PR=12, BH=30;
+  rows.forEach((r,ri)=>{
+    const y = 28 + ri*70;
+    g.fillStyle=CSSVAR('--text2'); g.font='10px monospace';
+    g.textAlign='left'; g.textBaseline='middle';
+    g.fillText(r.lab, 8, y+BH/2);
+    const cnt={}; let tot=0;
+    sh.forEach(x=>{ const v = (r.get(x)===null||r.get(x)===undefined) ? r.names.length-1 : r.get(x);
+                    cnt[v]=(cnt[v]||0)+1; tot++; });
+    let x = PL;
+    const wTot = W-PL-PR;
+    for(let k=0;k<r.names.length;k++){
+      const c = cnt[k]||0; if(!c) continue;
+      const w = wTot*c/tot;
+      g.fillStyle = r.cols[k]; g.globalAlpha=0.82;
+      g.fillRect(x, y, w-1.5, BH); g.globalAlpha=1;
+      if(w > 26){
+        g.fillStyle='#001018'; g.font='bold 11px monospace'; g.textAlign='center';
+        g.fillText(String(c), x+w/2, y+BH/2);
+      }
+      g.fillStyle=CSSVAR('--text3'); g.font='8.5px monospace'; g.textAlign='center';
+      if(w > 34) g.fillText(r.names[k], x+w/2, y+BH+9);
+      x += w;
+    }
+  });
+}
+
+/* ── TIRI ───────────────────────────────────────────────────────────────── */
+function renderTiri(){
+  const s = curSession();
+  document.getElementById('tiriEmpty').style.display = s ? 'none' : '';
+  document.getElementById('tiriBody').style.display  = s ? '' : 'none';
+  if(!s) return;
+  const sh = s.shots;
+  document.getElementById('tiriRt').textContent = sh.length+' tiri';
+
+  drawTrend(sh);
+
+  const D = mahalanobis(sh);
+  const f = (v,d)=> (v===null||v===undefined) ? '<td class="na">—</td>'
+                                              : '<td>'+v.toFixed(d)+'</td>';
+  const holdNames=['tenuto','lieve','abbass.','alzato','n/d'];
+  const relNames =['pulito','medio','strappo','n/d'];
+  // INTESTAZIONI ONESTE. Chiamare "cant" e "alzo" due colonne che su queste
+  // sedute sono SCAMBIATE non e' un dettaglio estetico: e' scrivere in tabella
+  // una cosa falsa. Se la sessione non dichiara il montaggio, si mostra la
+  // formula invece del nome — chi legge sa cosa sta guardando e nessuno viene
+  // indotto in errore.
+  const A = assetto(s.meta);
+  document.getElementById('tiriAvviso').style.display = A.dedotto ? '' : 'none';
+
+  let html = '<thead><tr><th>#</th><th>zona</th><th>alzo°</th><th>cant°</th>'
+           + '<th>hold°</th><th>classe</th><th>jerk</th><th>classe</th>'
+           + '<th>D</th><th>onda</th></tr></thead><tbody>';
+  sh.forEach((x,i)=>{
+    const zn = x.colpito ? (x.zona===4 ? 'SPOT' : 'z'+x.zona) : 'fuori';
+    const hc = (x.holdCls===null||x.holdCls===undefined) ? 4 : x.holdCls;
+    const rc = (x.relCls ===null||x.relCls ===undefined) ? 3 : x.relCls;
+    html += '<tr data-shot="'+i+'" onclick="pickShot('+i+')"'
+          + (i===selShot?' class="sel"':'')+'>'
+          + '<td>'+(x.shot!==null?x.shot:(i+1))+'</td>'
+          + '<td>'+zn+'</td>'
+          + f(A.alzo(x),2) + f(A.cant(x),2) + f(x.hold,2)
+          + '<td class="cls'+hc+'">'+holdNames[hc]+'</td>'
+          + (x.jerk!==null?'<td>'+x.jerk+'</td>':'<td class="na">—</td>')
+          + '<td class="cls'+(rc===3?4:rc)+'">'+relNames[rc]+'</td>'
+          + (D[i]!==null ? '<td'+(D[i]>2.5?' class="outlier"':'')+'>'+D[i].toFixed(2)+'</td>'
+                         : '<td class="na">—</td>')
+          + '<td>'+(x.burst?'●':'<span class="na">·</span>')+'</td></tr>';
+  });
+  document.getElementById('tblShots').innerHTML = html+'</tbody>';
+}
+
+function drawTrend(sh){
+  // L'etichetta dell'asse Y deve dire la STESSA COSA della chip selezionata.
+  // Erano due stringhe scollegate: la chip diventava "ay/ax" e l'asse restava
+  // "cant [gradi]", cioe' il grafico affermava una cosa che l'app stessa
+  // stava dichiarando incerta. Una fonte sola per il nome.
+  const ss = curSession();
+  const A = assetto(ss ? ss.meta : {});
+  const defs = {
+    alzo:{get:A.alzo, lab:'alzo [°]',  dec:2},
+    cant:{get:A.cant, lab:'cant [°]',  dec:2},
+    hold:{get:x=>x.hold, lab:'hold [°]',  dec:2},
+    jerk:{get:x=>x.jerk, lab:'jerk [m/s³]', dec:0},
+  };
+  const d = defs[trendMetric];
+  const xs = sh.map((_,i)=>i+1);
+  const ys = sh.map(d.get);
+  const ok = ys.filter(v=>v!==null);
+  if(!ok.length){ plot(document.getElementById('cvTrend'),
+    {xMin:0,xMax:1,yMin:0,yMax:1,series:[]}); return; }
+  const m = mean(ok), s = sd(ok) || 0;
+  const lo = Math.min(...ok, m-s), hi = Math.max(...ok, m+s);
+  const pad = (hi-lo)*0.18 + 1e-6;
+
+  plot(document.getElementById('cvTrend'), {
+    height:240,
+    xMin:0.5, xMax:sh.length+0.5, yMin:lo-pad, yMax:hi+pad,
+    xTicks:Math.min(sh.length, 9), yTicks:5,
+    xFmt:v=>Math.round(v), yFmt:v=>v.toFixed(d.dec),
+    yLabel:d.lab, xLabel:'tiro',
+    bands:[{y0:m-s, y1:m+s, color:'rgba(58,79,106,0.30)'}],
+    hlines:[{y:m, color:CSSVAR('--text3'), dash:true,
+             label:'media '+m.toFixed(d.dec)}],
+    series:[
+      {type:'line', color:CSSVAR('--acc'), xs, ys, width:1.6},
+      {type:'dots', color:CSSVAR('--acc'), xs, ys, width:3.4},
+    ],
+  });
+}
+
+function pickShot(i){
+  selShot = i;
+  renderDash();
+  renderTiri();
+  if(hasBursts()){ renderOnda(); renderFft(); renderTraccia(); }
+}
+
+/* ── ONDA ───────────────────────────────────────────────────────────────── */
+/* ONDA usa lo STESSO navigatore del QUADRO: un solo tiro selezionato in tutta
+   l'app, e un solo modo di cambiarlo. */
+function shotChipsHtml(sh){
+  return '<div class="nav" style="width:100%">'
+    + '<button class="nav-b" onclick="stepShot(-1)"'+(selShot<=0?' disabled':'')+'>&lsaquo;</button>'
+    + '<div class="nav-c"><select onchange="pickShot(parseInt(this.value))">'
+    + sh.map((x,i)=>'<option value="'+i+'"'+(i===selShot?' selected':'')+'>tiro '
+        +(x.shot!==null?x.shot:(i+1))+'</option>').join('')
+    + '</select><div class="pos">'+(selShot+1)+' di '+sh.length+'</div></div>'
+    + '<button class="nav-b" onclick="stepShot(1)"'+(selShot>=sh.length-1?' disabled':'')+'>&rsaquo;</button>'
+    + '</div>';
+}
+function curBurst(){
+  const s=curSession(); if(!s) return null;
+  return burstDi(s.shots[selShot]);   // gia' nel frame giusto
+}
+
+function renderOnda(){
+  const s = curSession(), b = curBurst();
+  const have = hasBursts();
+  document.getElementById('ondaEmpty').style.display = have ? 'none' : '';
+  document.getElementById('ondaBody').style.display  = have ? '' : 'none';
+  if(!have) return;
+  document.getElementById('shotChips').innerHTML = shotChipsHtml(s.shots);
+  if(!b){ document.getElementById('wfRt').textContent = 'tiro senza forma d\u0027onda'; return; }
+
+  const tms = new Float64Array(b.n);
+  for(let i=0;i<b.n;i++) tms[i] = (b.ts[i]-b.ts[b.trig])/1000;
+  document.getElementById('wfRt').textContent =
+    b.n+' campioni · '+b.fs.toFixed(1)+' Hz reali';
+
+  const xs = Array.from(tms);
+  const bounds = (arrs)=>{
+    let lo=Infinity, hi=-Infinity;
+    arrs.forEach(a=>{ for(let i=0;i<a.length;i++){ if(a[i]<lo)lo=a[i]; if(a[i]>hi)hi=a[i]; } });
+    const p=(hi-lo)*0.08+1e-6; return [lo-p, hi+p];
+  };
+  const [aLo,aHi] = bounds([b.ax,b.ay,b.az]);
+  plot(document.getElementById('cvAcc'), {
+    height:230, xMin:tms[0], xMax:tms[b.n-1], yMin:aLo, yMax:aHi,
+    yLabel:'m/s²', xLabel:'ms dallo scocco', xFmt:v=>v.toFixed(0), yFmt:v=>v.toFixed(1),
+    vlines:[{x:0, color:CSSVAR('--amb'), label:'scocco'}],
+    series:[
+      {type:'line', color:CSSVAR('--red'), xs, ys:Array.from(b.ax), alpha:0.8},
+      {type:'line', color:CSSVAR('--grn'), xs, ys:Array.from(b.ay), alpha:0.8},
+      {type:'line', color:CSSVAR('--acc'), xs, ys:Array.from(b.az), width:1.5},
+    ],
+  });
+  const [gLo,gHi] = bounds([b.gx,b.gy,b.gz]);
+  plot(document.getElementById('cvGyr'), {
+    height:230, xMin:tms[0], xMax:tms[b.n-1], yMin:gLo, yMax:gHi,
+    yLabel:'°/s', xLabel:'ms dallo scocco', xFmt:v=>v.toFixed(0), yFmt:v=>v.toFixed(0),
+    vlines:[{x:0, color:CSSVAR('--amb'), label:'scocco'}],
+    series:[
+      {type:'line', color:CSSVAR('--red'), xs, ys:Array.from(b.gx), alpha:0.8},
+      {type:'line', color:CSSVAR('--grn'), xs, ys:Array.from(b.gy), alpha:0.8},
+      {type:'line', color:CSSVAR('--acc'), xs, ys:Array.from(b.gz), alpha:0.8},
+    ],
+  });
+  // zoom -60 / +160 ms, con la banda dei 15 ms
+  const zi=[], zx=[], za=[], zy=[];
+  for(let i=0;i<b.n;i++){ if(tms[i]>=-60 && tms[i]<=160){
+    zi.push(i); zx.push(tms[i]); za.push(b.az[i]); zy.push(b.ay[i]); } }
+  const [zLo,zHi] = bounds([za,zy]);
+  plot(document.getElementById('cvZoom'), {
+    height:200, xMin:-60, xMax:160, yMin:zLo, yMax:zHi,
+    yLabel:'m/s²', xLabel:'ms dallo scocco', xFmt:v=>v.toFixed(0), yFmt:v=>v.toFixed(1),
+    vbands:[{x0:0, x1:15, color:'rgba(255,176,32,0.14)'}],
+    vlines:[{x:0, color:CSSVAR('--amb')}],
+    series:[
+      {type:'line', color:CSSVAR('--grn'), xs:zy&&zx, ys:zy, alpha:0.85},
+      {type:'line', color:CSSVAR('--acc'), xs:zx, ys:za, width:1.6},
+    ],
+  });
+}
+
+/* ── FFT ────────────────────────────────────────────────────────────────── */
+function renderFft(){
+  const s = curSession(), b = curBurst();
+  const have = hasBursts();
+  document.getElementById('fftEmpty').style.display = have ? 'none' : '';
+  document.getElementById('fftBody').style.display  = have ? '' : 'none';
+  if(!have || !b) return;
+
+  const m = Math.min(b.n - b.trig, Math.round(fftWinMs/1000*b.fs));
+  const x = b.az.subarray(b.trig, b.trig+m);
+  const sp = spectrum(x, b.fs, 2048);
+  if(!sp) return;
+
+  // taglio del filtro interno del QMI8658: aLPF_MODE_2 = 5,39 % dell'ODR.
+  // Con ODR effettivo ~218 Hz il -3 dB cade attorno agli 11-13 Hz.
+  const fCut = b.fs * 0.0539;
+  const FMAX = 60;
+
+  // SOGLIA BASSA — non arbitraria: sotto 2/T la finestra contiene meno di due
+  // cicli completi, e quello che si legge li' e' una DERIVA, non
+  // un'oscillazione. Senza questa soglia il picco cadeva a 0,1 Hz su 7 tiri
+  // su 9 dei dati del 25/07: la coda del follow-through, letta come se fosse
+  // una frequenza. La soglia si adatta alla finestra scelta, quindi cambia
+  // quando cambi finestra — com'e' giusto che sia.
+  const fMin = 2 * sp.resHz;
+
+  const idx = [];
+  for(let k=1;k<sp.freqs.length;k++){ if(sp.freqs[k] <= FMAX) idx.push(k); }
+  const xs = idx.map(k=>sp.freqs[k]), ys = idx.map(k=>sp.mag[k]);
+  let pk=0, pi=-1;
+  ys.forEach((v,i)=>{ if(xs[i] >= fMin && v>pk){pk=v;pi=i;} });
+  if(pi < 0){ pi = 0; pk = ys[0] || 0; }
+
+  document.getElementById('fftRt').textContent =
+    'tiro '+(s.shots[selShot].shot||selShot+1)+' · '+m+' campioni';
+  plot(document.getElementById('cvFft'), {
+    height:250, xMin:0, xMax:FMAX, yMin:0, yMax:Math.max(pk*1.18, 1e-3),
+    xTicks:6, yTicks:4, xFmt:v=>v.toFixed(0), yFmt:v=>v.toFixed(2),
+    yLabel:'ampiezza az [m/s²]', xLabel:'Hz',
+    vbands:[{x0:0,    x1:fMin, color:'rgba(107,130,158,0.16)'},
+            {x0:fCut, x1:FMAX, color:'rgba(255,68,85,0.07)'}],
+    vlines:[{x:fMin, color:CSSVAR('--text3'), dash:true},
+            {x:fCut, color:CSSVAR('--red'), dash:true,
+             label:'filtro IMU '+fCut.toFixed(0)+' Hz'}],
+    series:[{type:'bar', color:'rgba(0,200,255,0.75)', xs, ys}],
+  });
+
+  document.getElementById('fPeak').innerHTML = xs[pi].toFixed(1)+'<small> Hz</small>';
+  document.getElementById('fAmp').innerHTML  = pk.toFixed(2)+'<small> m/s²</small>';
+  document.getElementById('fRes').innerHTML  = sp.resHz.toFixed(2)+'<small> Hz</small>';
+
+  // GUARDIA — un picco appoggiato al bordo della banda utile non e' un picco:
+  // e' l'algoritmo che restituisce l'estremo perche' li' dentro non c'e'
+  // niente di misurabile. Successo sui dati veri: con finestra 150 ms tutti e
+  // nove i tiri davano 13,3 Hz, cioe' esattamente fMin. Un numero identico su
+  // nove tiri diversi non e' una misura ripetibile, e' un artefatto.
+  const alBordo = (xs[pi] - fMin) < sp.resHz;
+  document.getElementById('fPeak').style.color = alBordo ? CSSVAR('--red') : '';
+
+  let avviso = '';
+  if(alBordo){
+    avviso = '<b style="color:var(--red)">Picco appoggiato al limite inferiore.</b> '
+      + 'Con questa finestra ('+(m/b.fs*1000).toFixed(0)+' ms) la risoluzione è '
+      + sp.resHz.toFixed(1)+' Hz e sotto '+fMin.toFixed(1)+' Hz non entrano due '
+      + 'cicli: il valore mostrato è il bordo della banda, non un modo di '
+      + 'oscillazione. Allunga la finestra.<br><br>';
+  }
+
+  document.getElementById('fftWarn').innerHTML = avviso +
+    '<b>Risoluzione vera '+sp.resHz.toFixed(2)+' Hz</b> (= 1/T, con T = '+
+    (m/b.fs*1000).toFixed(0)+' ms). Il passo dei bin è '+sp.binHz.toFixed(2)+
+    ' Hz solo perché lo spettro è interpolato con zero-padding: serve a stimare '+
+    'meglio <i>dove</i> cade il picco, non a separare due modi vicini. Per '+
+    'separarli serve una finestra più lunga, non più zeri. La zona grigia a '+
+    'sinistra è sotto i due cicli di finestra: lì si legge una deriva, non una '+
+    'frequenza.'+
+    '<br><br><b>Perché 300 ms è il default.</b> Sui nove tiri del 25/07 il picco '+
+    'misurato è: a 300 ms fra 7,3 e 11,5 Hz (media 8,9, σ 1,3); a 500 ms fra 4,0 '+
+    'e 10,0 Hz (σ 2,1); a 1000 ms si sfilaccia fino al limite dei 2 Hz perché la '+
+    'coda del follow-through domina. La finestra corta è quella in cui la misura '+
+    'si ripete. Non è una preferenza: è dove σ è minima.'+
+    '<br><br><b>La zona rossa non è misurabile.</b> Il QMI8658 è configurato con '+
+    '<code>LPF_MODE_2</code>, cioè un passa-basso al <b>5,39 % dell\u0027ODR</b>: a '+
+    b.fs.toFixed(0)+' Hz effettivi il taglio cade a ~'+fCut.toFixed(0)+' Hz. '+
+    'Tutto ciò che sta sopra arriva attenuato dal sensore, non dall\u0027arco. '+
+    'È coerente con la misura: sui nove burst l\u0027energia sopra i 30 Hz è '+
+    'esattamente zero. La banda 15–80 Hz che la 1.69 chiamava «vibrazione dei '+
+    'flettenti» <b>su questa configurazione non esiste</b>. Quello che vedi fra 5 '+
+    'e 15 Hz è l\u0027oscillazione del sistema arciere-arco dopo il rilascio, ed è '+
+    'comunque informativo: varia di un fattore 4 in ampiezza fra un tiro e l\u0027altro.';
+}
+
+/* ── TRACCIA ────────────────────────────────────────────────────────────── */
+function renderTraccia(){
+  const s = curSession(), b = curBurst();
+  const have = hasBursts();
+  document.getElementById('trEmpty').style.display = have ? 'none' : '';
+  document.getElementById('trBody').style.display  = have ? '' : 'none';
+  if(!have || !b) return;
+  const t = drawTrace(document.getElementById('cvTrace'), b);
+  document.getElementById('trRt').textContent =
+    'tiro '+(s.shots[selShot].shot||selShot+1)+' · bias su '+t.biasUsed+' campioni fermi';
+}
+function toggleYawSign(){
+  signYaw = -signYaw;
+  document.getElementById('chipYaw').textContent =
+    'verso yaw: '+(signYaw<0 ? '+gx a destra' : '+gx a sinistra');
+  renderTraccia();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §13 · INGRESSO DATI — sessioni in memoria e persistenza
+   ══════════════════════════════════════════════════════════════════════════ */
+function addSession(name, shots, meta, source, comment){
+  const ex = DB.sessions[name];
+  if(ex){
+    // fusione: le righe nuove non sovrascrivono i burst gia' agganciati
+    ex.meta = Object.assign({}, ex.meta, meta||{});
+    if(shots && shots.length){
+      shots.forEach(ns=>{
+        const old = ex.shots.find(o=>o.shot===ns.shot);
+        if(old){ const b=old.burst; Object.assign(old, ns); old.burst=b; }
+        else ex.shots.push(ns);
+      });
+      ex.shots.sort((a,b)=>(a.shot||0)-(b.shot||0));
+    }
+    if(!ex.source.includes(source)) ex.source += '+'+source;
+    if(comment) ex.csvComment = comment;
+  } else {
+    DB.sessions[name] = {name, shots:shots||[], meta:meta||{}, source,
+                         csvComment:comment||''};
+  }
+  DB.current = name;
+  selShot = 0;
+  renderMemList(); refreshLocks(); saveDb();
+}
+
+function attachBurst(name, fileName, buf){
+  const s = DB.sessions[name]; if(!s) return false;
+  const b = parseBurst(buf); if(!b) return false;
+  // aggancio per NOME FILE (la colonna burst_file del CSV): e' la chiave che
+  // il firmware stesso scrive. Se manca la riga (burst senza CSV), la creiamo.
+  let x = s.shots.find(o => o.burstFile === fileName);
+  if(!x){
+    x = {shot:b.shot, ts_ms:null, colpito:false, zona:null, dist_m:null,
+         elev_deg:null, arcs:null, cant:null, alzo:null, stabile:false,
+         hold:null, holdCls:null, jerk:null, relCls:null,
+         burstFile:fileName, burst:null};
+    s.shots.push(x); s.shots.sort((a,b)=>(a.shot||0)-(b.shot||0));
+  }
+  x.burst = b;
+  return true;
+}
+
+function renderMemList(){
+  const el = document.getElementById('memList');
+  const names = Object.keys(DB.sessions).sort().reverse();
+  document.getElementById('memCount').textContent =
+    names.length+' session'+(names.length===1?'e':'i');
+  if(!names.length){
+    el.innerHTML = '<div class="empty"><b>Ancora niente</b>'
+                 + 'Scarica una sessione dal device o apri una cartella.</div>';
+    return;
+  }
+  el.innerHTML = names.map(n=>{
+    const s = DB.sessions[n];
+    const nb = s.shots.filter(x=>x.burst).length;
+    return '<div class="sess'+(n===DB.current?' sel':'')+'" onclick="pickSession(\''+n+'\')">'
+      + '<span class="nm">'+n+'</span>'
+      + srcBadge(s.source)
+      + '<span class="sh">'+s.shots.length+' tiri'+(nb?' · '+nb+' onde':'')+'</span>'
+      + '</div>';
+  }).join('');
+}
+function pickSession(n){
+  DB.current = n; selShot = 0;
+  renderMemList(); refreshLocks(); saveDb();
+  showTab('dash');
+}
+
+/* ── Persistenza IndexedDB — solo per non riscaricare ogni volta ────────── */
+let idb = null;
+function openDb(){
+  return new Promise(res=>{
+    // IndexedDB puo' NON ESISTERE: alcune modalita' private lo disabilitano, e
+    // certi contesti incorporati non lo espongono. Senza questa guardia
+    // l'accesso diretto lancia a tempo di CARICAMENTO e l'app non parte
+    // affatto — per una funzione che e' solo una comodita' (non riscaricare le
+    // sessioni). Meglio perdere la cache che l'applicazione.
+    if(typeof indexedDB === 'undefined' || !indexedDB){
+      console.warn('ArchBB: IndexedDB non disponibile, la cache e\u0027 disattivata');
+      return res(null);
+    }
+    const r = indexedDB.open('archbb183', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('sessions', {keyPath:'name'});
+    r.onsuccess = () => { idb = r.result; res(idb); };
+    r.onerror   = () => res(null);
+  });
+}
+function saveDb(){
+  if(!idb) return;
+  try{
+    const tx = idb.transaction('sessions','readwrite');
+    const st = tx.objectStore('sessions');
+    Object.values(DB.sessions).forEach(s=>{
+      st.put({name:s.name, meta:s.meta, source:s.source, csvComment:s.csvComment,
+              shots:s.shots.map(x=>{ const c={...x}; delete c.burst; return c; }),
+              bursts:s.shots.filter(x=>x.burst && x.burst.raw)
+                            .map(x=>({f:x.burstFile, b:x.burst.raw}))});
+    });
+  }catch(e){ console.warn('IndexedDB:', e); }
+}
+async function loadDb(){
+  await openDb(); if(!idb) return;
+  try{
+    const tx = idb.transaction('sessions','readonly');
+    const rq = tx.objectStore('sessions').getAll();
+    rq.onsuccess = () => {
+      rq.result.forEach(r=>{
+        DB.sessions[r.name] = {name:r.name, meta:r.meta||{}, source:r.source||'ble',
+                               csvComment:r.csvComment||'', shots:r.shots||[]};
+        (r.bursts||[]).forEach(bb=>{
+          const b = parseBurst(bb.b);
+          if(b){ b.raw = bb.b; const x = DB.sessions[r.name].shots.find(o=>o.burstFile===bb.f);
+                 if(x) x.burst = b; }
+        });
+      });
+      if(!DB.current){
+        const ks = Object.keys(DB.sessions).sort();
+        if(ks.length) DB.current = ks[ks.length-1];
+      }
+      renderMemList(); refreshLocks();
+    };
+  }catch(e){ console.warn('IndexedDB load:', e); }
+}
+
+/* ── Riconoscere la sessione dal CONTENUTO, non dal nome ────────────────────
+   Il nome della cartella (SESS_20260725_1648) porta l'ora di INIZIO; dentro
+   session.txt c'e' ended_datetime, che porta l'ora di FINE. Sulla sessione del
+   25/07 sono 1648 contro 1655: sette minuti di scarto. Derivare il nome dalla
+   fine — come facevo prima — produceva una sessione DOPPIA ogni volta che i
+   file arrivavano senza il nome della cartella (cioe' sempre, col selettore
+   file di Android). L'aggancio via burst_file falliva in silenzio.
+
+   Il nome e' quindi solo un'etichetta: l'identita' della sessione sta nel
+   contenuto. Chiave in ordine di robustezza:
+     1) ended_ms   — millisecondi da boot alla chiusura: praticamente irripetibile
+     2) ts_ms del primo tiro — stesso ragionamento, e c'e' anche senza session.txt
+   Se una delle due combacia con una sessione gia' in memoria, e' quella. */
+function matchExistingSession(meta, shots){
+  const names = Object.keys(DB.sessions);
+  for(const n of names){
+    const s = DB.sessions[n];
+    if(meta.ended_ms && s.meta.ended_ms && meta.ended_ms === s.meta.ended_ms) return n;
+    if(meta.ended_datetime && s.meta.ended_datetime &&
+       meta.ended_datetime === s.meta.ended_datetime) return n;
+    if(shots && shots.length && s.shots.length){
+      const a = shots[0].ts_ms, b = s.shots[0].ts_ms;
+      if(a !== null && b !== null && a === b) return n;
+    }
+  }
+  return null;
+}
+async function openLocalFolder(){
+  if(!window.showDirectoryPicker){
+    toast('Questo browser non apre cartelle: usa «Scegli file»','err');
+    return openLocalFiles();
+  }
+  try{
+    const dir = await window.showDirectoryPicker();
+    const files = [];
+    for await (const [nm, h] of dir.entries()){
+      if(h.kind === 'file') files.push(await h.getFile());
+    }
+    await ingestLocal(dir.name, files);
+  }catch(e){ if(e.name!=='AbortError') toast('Cartella: '+e.message,'err'); }
+}
+function openLocalFiles(){ document.getElementById('fileInput').click(); }
+async function onLocalFiles(fl){
+  if(!fl || !fl.length) return;
+  // nome sessione: dal percorso relativo se c'e' (input webkitdirectory), altrimenti chiedi
+  let name = '';
+  const rp = fl[0].webkitRelativePath || '';
+  if(rp.includes('/')) name = rp.split('/')[0];
+  await ingestLocal(name, Array.from(fl));
+}
+
+async function ingestLocal(dirName, files){
+  const csv  = files.find(f=>f.name.toLowerCase()==='shots.csv');
+  const txt  = files.find(f=>f.name.toLowerCase()==='session.txt');
+  const bins = files.filter(f=>/^burst_\d+\.bin$/i.test(f.name))
+                    .sort((a,b)=>a.name.localeCompare(b.name));
+  if(!csv && !bins.length){ toast('Nella cartella non ci sono né shots.csv né burst','err'); return; }
+
+  let meta = {};
+  if(txt) meta = parseSessionTxt(await txt.text());
+  let parsed = null, csvComment = '';
+  if(csv){ const r = parseShotsCsv(await csv.text()); parsed = r.shots; csvComment = r.csvComment; }
+
+  // ── Identita' della sessione ───────────────────────────────────────────
+  // Ordine di fiducia: contenuto > nome cartella > ripiego.
+  // Il contenuto viene PRIMA del nome perche' e' l'unico modo di riconoscere
+  // una sessione gia' scaricata via BLE, che porta il nome della cartella sul
+  // device — nome che il selettore file di Android non ci consegna mai.
+  const fuso = matchExistingSession(meta, parsed);
+  let name = fuso || dirName;
+  let stimato = false;
+  if(!name){
+    // Nessuna corrispondenza e nessun nome di cartella: costruiamone uno
+    // riconoscibile, ma DICHIARANDO che e' una stima — cosi' se poi arriva la
+    // stessa sessione via BLE si capisce perche' i nomi non coincidono.
+    const d = (meta.ended_datetime || '').replace(/[-:T]/g,'');
+    name = d ? 'SESS_'+d.slice(0,8)+'_'+d.slice(8,12)+'~' : 'SESS_locale_'+Date.now();
+    stimato = true;
+  }
+
+  addSession(name, parsed || [], meta, 'sd', csvComment);
+
+  let ok=0;
+  for(const f of bins){
+    const buf = await f.arrayBuffer();
+    const b = parseBurst(buf);
+    if(b && attachBurst(name, f.name, buf)){
+      const x = DB.sessions[name].shots.find(o=>o.burstFile===f.name);
+      if(x && x.burst) x.burst.raw = buf;
+      ok++;
+    }
+  }
+  saveDb(); renderMemList(); refreshLocks();
+
+  const nTiri = DB.sessions[name].shots.length;
+  if(fuso)      toast('Unita a '+fuso+': +'+ok+' forme d\u0027onda sui tiri già presenti','ok');
+  else if(stimato) toast('Caricata '+name+' ('+nTiri+' tiri, '+ok+' onde) — nome stimato dall\u0027ora di fine','ok');
+  else          toast('Caricata '+name+': '+nTiri+' tiri, '+ok+' onde','ok');
+  showTab(ok ? 'onda' : 'dash');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §14 · BLE
+   ══════════════════════════════════════════════════════════════════════════ */
+let device=null, server=null, svc=null;
+let chCfg=null, chTime=null, chCmd=null, chSt=null, chSes=null, chDat=null;
+let currentCfg = null;
+let sessExpected = 0, sessBuffer = [];
+
+async function toggleConnect(){
+  if(device && device.gatt.connected){ device.gatt.disconnect(); return; }
+  if(!navigator.bluetooth){ toast('Web Bluetooth non disponibile su questo browser','err'); return; }
+  try{
+    setConn('searching','Ricerca…','scegli ArchBB-183 nella lista');
+    device = await navigator.bluetooth.requestDevice({
+      filters:[{namePrefix:'ArchBB-183'}], optionalServices:[SVC]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    server = await device.gatt.connect();
+    svc    = await server.getPrimaryService(SVC);
+    chCfg  = await svc.getCharacteristic(C_CFG);
+    chTime = await svc.getCharacteristic(C_TIME);
+    chCmd  = await svc.getCharacteristic(C_CMD);
+    chSt   = await svc.getCharacteristic(C_ST);
+    chSes  = await svc.getCharacteristic(C_SES);
+    // DATA: presente solo dal firmware 1.83-F10 in poi. Se manca, l'app resta
+    // pienamente utilizzabile (config, ora, elenco) e lo dice invece di
+    // rompersi con un errore oscuro.
+    try{ chDat = await svc.getCharacteristic(C_DAT); }catch(e){ chDat = null; }
+
+    await chSt.startNotifications();
+    chSt.addEventListener('characteristicvaluechanged', onStatus);
+    await chSes.startNotifications();
+    chSes.addEventListener('characteristicvaluechanged', onSession);
+    if(chDat){
+      await chDat.startNotifications();
+      chDat.addEventListener('characteristicvaluechanged', onData);
+    }
+
+    setConn('on', device.name || 'ArchBB-183', 'connesso');
+    enableCards(true);
+    document.getElementById('btnConn').textContent = 'Disconnetti';
+    document.getElementById('dlHint').textContent =
+      chDat ? '' : 'firmware senza download';
+    await readConfig();
+    await sendCmd([CMD_PING]);
+    toast('Connesso a '+(device.name||'ArchBB'),'ok');
+  }catch(e){
+    setConn('','Non connesso','premi Connetti e scegli ArchBB-183…');
+    if(e.name!=='NotFoundError') toast('Errore: '+e.message,'err');
+  }
+}
+function onDisconnected(){
+  setConn('','Non connesso','il device è uscito dal modo BLE o è fuori portata');
+  enableCards(false);
+  document.getElementById('btnConn').textContent='Connetti';
+  if(dl.active) dlFail('connessione caduta');
+}
+async function sendCmd(bytes){ await chCmd.writeValue(new Uint8Array(bytes)); }
+
+/* ── STATUS ─────────────────────────────────────────────────────────────── */
+function onStatus(ev){
+  const dv = ev.target.value;
+  if(dv.byteLength < 28) return;
+  const batt=dv.getUint8(2), charging=dv.getUint8(3);
+  const sdOk=dv.getUint8(4), rtcValid=dv.getUint8(5);
+  const sessCount=dv.getUint16(6,true), sdFree=dv.getUint32(8,true);
+  let fw=''; for(let i=12;i<28;i++){const b=dv.getUint8(i); if(b===0)break; fw+=String.fromCharCode(b);}
+  document.getElementById('pBatt').textContent = (batt===255?'n/d':batt+'%')+(charging?' ⚡':'');
+  document.getElementById('pSd').textContent   = sdOk ? sdFree+'MB' : 'no SD';
+  document.getElementById('pSess').textContent = sdOk ? sessCount : '–';
+  document.getElementById('fwline').textContent =
+    'firmware: '+(fw||'?')+' · RTC: '+(rtcValid?'impostato':'da sincronizzare');
+  document.getElementById('rtcNow').textContent =
+    rtcValid ? 'ora sul device: impostata' : 'ora sul device: NON impostata';
+}
+
+/* ── ELENCO SESSIONI ────────────────────────────────────────────────────── */
+function onSession(ev){
+  const dv = ev.target.value;
+  if(dv.byteLength < 30) return;
+  const index=dv.getUint16(0,true), shots=dv.getUint16(2,true);
+  let name=''; for(let i=4;i<30;i++){const b=dv.getUint8(i); if(b===0)break; name+=String.fromCharCode(b);}
+  if(index===0xFFFF){ sessExpected=shots; sessBuffer=[];
+    if(!sessExpected) renderSessions(); return; }
+  sessBuffer.push({index, shots, name});
+  if(sessBuffer.length >= sessExpected) renderSessions();
+}
+async function listSessions(){
+  if(!chCmd) return;
+  document.getElementById('sessList').innerHTML='<div class="empty">lettura della card…</div>';
+  sessExpected=0; sessBuffer=[];
+  await sendCmd([CMD_LIST]);
+}
+function renderSessions(){
+  const el = document.getElementById('sessList');
+  if(!sessBuffer.length){
+    el.innerHTML='<div class="empty"><b>Card vuota</b>Nessuna sessione registrata.</div>'; return; }
+  el.innerHTML = sessBuffer.map(s=>
+    '<div class="sess" onclick="downloadCsv('+s.index+',\''+s.name+'\')">'
+    +'<span class="idx">#'+(s.index+1)+'</span>'
+    +'<span class="nm">'+s.name+'</span>'
+    +'<span class="sh">'+s.shots+' tiri</span>'
+    +'<button class="btn-ghost btn-sm">Scarica</button></div>').join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §15 · DOWNLOAD DI UN FILE — macchina a stati sui frame della DATA.
+   ─────────────────────────────────────────────────────────────────────────
+   Il device impone il ritmo (una notify per connection interval); qui non
+   c'e' nulla da temporizzare, solo da riassemblare. Il controllo di
+   integrita' e' il CRC32 nel frame END: se non torna, il file va buttato e
+   riscaricato — perche' mezzo CSV che sembra intero e' peggio di nessun CSV.
+   ══════════════════════════════════════════════════════════════════════════ */
+const dl = {active:false, kind:0, index:0, name:'', size:0, got:0,
+            parts:[], resolve:null, timer:null, meta:null};
+
+function dlProgress(p){
+  const el = document.getElementById('dlProg');
+  el.style.display = p===null ? 'none' : '';
+  if(p!==null) document.getElementById('dlBar').style.width = Math.round(p*100)+'%';
+}
+function dlFail(msg){
+  if(dl.timer) clearTimeout(dl.timer);
+  dl.active=false; dlProgress(null);
+  toast('Download interrotto: '+msg,'err');
+}
+function dlArm(){
+  if(dl.timer) clearTimeout(dl.timer);
+  // 6 s senza un frame = qualcosa si e' fermato. Generoso rispetto ai ~200 ms
+  // attesi, ma il device potrebbe stare scandendo una card lenta.
+  dl.timer = setTimeout(()=>dlFail('nessuna risposta dal device'), 6000);
+}
+
+function onData(ev){
+  const dv = ev.target.value;
+  if(dv.byteLength < 1) return;
+  const type = dv.getUint8(0);
+
+  if(type===FRM_ERROR){
+    dlFail(DL_ERR[dv.getUint8(1)] || 'errore '+dv.getUint8(1));
+    return;
+  }
+  if(type===FRM_HEADER){
+    if(dv.byteLength < 8) return;
+    dl.kind  = dv.getUint8(1);
+    dl.index = dv.getUint16(2,true);
+    dl.size  = dv.getUint32(4,true);
+    dl.got   = 0; dl.parts = []; dl.active = true;
+    dlProgress(0); dlArm();
+    return;
+  }
+  if(!dl.active) return;
+
+  if(type===FRM_CHUNK){
+    const payload = new Uint8Array(dv.buffer, dv.byteOffset+3, dv.byteLength-3);
+    dl.parts.push(payload.slice());        // slice(): copia, il buffer viene riusato
+    dl.got += payload.length;
+    dlProgress(dl.size ? dl.got/dl.size : 0);
+    dlArm();
+    return;
+  }
+  if(type===FRM_END){
+    if(dl.timer) clearTimeout(dl.timer);
+    const chunks = dv.getUint16(1,true), crcDev = dv.getUint32(3,true);
+    const all = new Uint8Array(dl.got);
+    let o=0; dl.parts.forEach(p=>{ all.set(p,o); o+=p.length; });
+    dl.active=false; dlProgress(null);
+
+    if(dl.got !== dl.size){
+      toast('File incompleto ('+dl.got+'/'+dl.size+' byte)','err'); return; }
+    const crcApp = crc32(all);
+    if(crcApp !== crcDev){
+      toast('CRC non corrisponde — riprova','err'); return; }
+
+    const text = new TextDecoder('utf-8').decode(all);
+    if(dl.kind === FILE_SESSION_TXT){
+      dl.meta = parseSessionTxt(text);
+      // ora che ho i metadati, chiedo il CSV
+      sendCmd([CMD_GET_FILE, dl.index & 0xFF, dl.index >> 8, FILE_SHOTS_CSV]);
+      dlArm(); dl.active = true;
+      return;
+    }
+    const {shots, csvComment} = parseShotsCsv(text);
+    addSession(dl.name, shots, dl.meta || {}, 'ble', csvComment);
+    toast('Scaricata '+dl.name+': '+shots.length+' tiri ('+dl.size+' byte, '+chunks+' blocchi)','ok');
+    showTab('dash');
+  }
+}
+
+/* Scarica una sessione: prima session.txt (metadati, ~150 byte), poi
+   shots.csv. Due file in sequenza, non in parallelo: il device ha una coda
+   comandi e un solo canale DATA — sovrapporli significherebbe intrecciare
+   due flussi sullo stesso filo. */
+async function downloadCsv(index, name){
+  if(!chDat){ toast('Questo firmware non ha il canale DATA: aggiorna alla 1.83-F10','err'); return; }
+  if(dl.active){ toast('C\u0027è già un download in corso','err'); return; }
+  dl.name = name; dl.meta = null; dl.active = true;
+  dlProgress(0); dlArm();
+  await sendCmd([CMD_GET_FILE, index & 0xFF, index >> 8, FILE_SESSION_TXT]);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §16 · CONFIG / ORA
+   ══════════════════════════════════════════════════════════════════════════ */
+function cfgChecksum(bytes){
+  let h = 2166136261 >>> 0;
+  for(let i=0;i<CFG_SIZE-4;i++){ h ^= bytes[i]; h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function parseConfig(dv){
+  return {
+    version:dv.getUint16(0,true), trig_mode:dv.getUint8(2),
+    trig_threshold_ms2:dv.getFloat32(3,true), trig_confirm_n:dv.getUint8(7),
+    trig_rearm_ms:dv.getUint16(8,true), window_pre_ms:dv.getUint16(10,true),
+    window_post_ms:dv.getUint16(12,true), mount_orientation:dv.getUint8(14),
+    offset_cant_deg:dv.getFloat32(15,true), offset_alzo_deg:dv.getFloat32(19,true),
+    offset_g_ms2:dv.getFloat32(23,true), bow_mass_kg:dv.getFloat32(27,true),
+    checksum:dv.getUint32(31,true),
+  };
+}
+function buildConfig(c){
+  const buf=new ArrayBuffer(CFG_SIZE), dv=new DataView(buf);
+  dv.setUint16(0,c.version,true); dv.setUint8(2,c.trig_mode);
+  dv.setFloat32(3,c.trig_threshold_ms2,true); dv.setUint8(7,c.trig_confirm_n);
+  dv.setUint16(8,c.trig_rearm_ms,true); dv.setUint16(10,c.window_pre_ms,true);
+  dv.setUint16(12,c.window_post_ms,true); dv.setUint8(14,c.mount_orientation);
+  dv.setFloat32(15,c.offset_cant_deg,true); dv.setFloat32(19,c.offset_alzo_deg,true);
+  dv.setFloat32(23,c.offset_g_ms2,true); dv.setFloat32(27,c.bow_mass_kg,true);
+  dv.setUint32(31, cfgChecksum(new Uint8Array(buf)), true);
+  return buf;
+}
+/* Popola la tendina dei montaggi coi NOMI FISICI. Fatto da JS e non in HTML
+   perche' la tabella MONTAGGI e' la fonte unica: se cambia, cambia qui e basta. */
+function popolaMontaggi(){
+  const sel = document.getElementById('cfgMount');
+  if(sel.options.length) return;
+  sel.innerHTML = MONTAGGI.map(m =>
+    '<option value="'+m.v+'">'+m.nome+' — '+m.nota+'</option>').join('');
+}
+
+async function mountCal(){
+  if(!chCmd) return;
+  if(!confirm('L\u0027arco è a piombo e fermo?\n\nIl dispositivo registrerà '
+            + 'questo assetto come riferimento.')) return;
+  await sendCmd([CMD_MOUNT_CAL]);
+  document.getElementById('calStato').textContent = 'in corso…';
+  // Il device campiona ~0,25 s e poi rinotifica lo STATUS; il config va riletto
+  // perche' gli offset stanno nella struct Config, non nello STATUS.
+  setTimeout(async () => { await readConfig(); toast('Taratura registrata','ok'); }, 900);
+}
+
+async function mountCalReset(){
+  if(!chCmd) return;
+  if(!confirm('Azzerare la taratura del montaggio?')) return;
+  await sendCmd([CMD_MOUNT_CAL_RST]);
+  setTimeout(async () => { await readConfig(); toast('Taratura azzerata','ok'); }, 500);
+}
+
+async function readConfig(){
+  const dv = await chCfg.readValue();
+  if(dv.byteLength < CFG_SIZE){ toast('Config corto ('+dv.byteLength+' B)','err'); return; }
+  const c = parseConfig(dv); currentCfg = c;
+  popolaMontaggi();
+  document.getElementById('cfgMount').value = c.mount_orientation;
+  const mm = MONTAGGI.find(m => m.v === c.mount_orientation);
+  document.getElementById('cfgMountHint').textContent =
+    mm ? ('la scheda è sul lato: ' + mm.nome.toLowerCase())
+       : ('valore ' + c.mount_orientation + ' non riconosciuto');
+
+  // Offset di montaggio: zero = mai tarato. E' un\u0027informazione, non un
+  // difetto — ma va detta, perche' cambia come si leggono i valori assoluti.
+  const tarato = Math.abs(c.offset_cant_deg) > 0.005 || Math.abs(c.offset_alzo_deg) > 0.005;
+  document.getElementById('calCant').innerHTML = c.offset_cant_deg.toFixed(2)+'<small> °</small>';
+  document.getElementById('calAlzo').innerHTML = c.offset_alzo_deg.toFixed(2)+'<small> °</small>';
+  document.getElementById('calStato').textContent = tarato ? 'tarato' : 'mai tarato';
+  document.getElementById('calStato').style.color =
+    tarato ? 'var(--grn)' : 'var(--amb)';
+  document.getElementById('cfgThr').value   = c.trig_threshold_ms2.toFixed(1);
+  document.getElementById('cfgConf').value  = c.trig_confirm_n;
+  document.getElementById('cfgPre').value   = c.window_pre_ms;
+  document.getElementById('cfgPost').value  = c.window_post_ms;
+  document.getElementById('cfgRearm').value = c.trig_rearm_ms;
+  document.getElementById('cfgMass').value  = c.bow_mass_kg.toFixed(1);
+}
+async function writeConfig(){
+  if(!currentCfg){ toast('Rileggi prima il config','err'); return; }
+  const c = {...currentCfg};
+  c.mount_orientation  = parseInt(document.getElementById('cfgMount').value);
+  c.trig_threshold_ms2 = parseFloat(document.getElementById('cfgThr').value);
+  c.trig_confirm_n     = parseInt(document.getElementById('cfgConf').value);
+  c.window_pre_ms      = parseInt(document.getElementById('cfgPre').value);
+  c.window_post_ms     = parseInt(document.getElementById('cfgPost').value);
+  c.trig_rearm_ms      = parseInt(document.getElementById('cfgRearm').value);
+  c.bow_mass_kg        = parseFloat(document.getElementById('cfgMass').value);
+  const preS  = Math.round(c.window_pre_ms/1000*224);
+  const postS = Math.round(c.window_post_ms/1000*224);
+  if(preS+postS > 750){ toast('Finestre troppo lunghe (max ~3,3 s a 224 Hz)','err'); return; }
+  await chCfg.writeValue(buildConfig(c));
+  toast('Config scritto sul device','ok');
+  setTimeout(readConfig, 300);
+}
+async function resetConfig(){
+  if(!confirm('Ripristinare i parametri di fabbrica sul device?')) return;
+  await sendCmd([CMD_RESET]);
+  toast('Reset inviato — rileggo il config','ok');
+  setTimeout(readConfig, 400);
+}
+async function syncTime(){
+  const now = new Date(), y = now.getFullYear();
+  const b = new Uint8Array(7);
+  b[0]=y&0xFF; b[1]=(y>>8)&0xFF; b[2]=now.getMonth()+1; b[3]=now.getDate();
+  b[4]=now.getHours(); b[5]=now.getMinutes(); b[6]=now.getSeconds();
+  await chTime.writeValue(b);
+  toast('Ora inviata: '+now.toLocaleTimeString('it-IT'),'ok');
+  setTimeout(()=>sendCmd([CMD_PING]), 300);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §17 · UI helper e avvio
+   ══════════════════════════════════════════════════════════════════════════ */
+function setConn(cls,l1,l2){
+  document.getElementById('dot').className = 'dot'+(cls?' '+cls:'');
+  document.getElementById('connL1').textContent = l1;
+  document.getElementById('connL2').textContent = l2;
+}
+function enableCards(on){
+  ['cardStatus','cardTime','cardConfig','cardSessions','cardMountCal'].forEach(id=>
+    document.getElementById(id).classList.toggle('disabled', !on));
+}
+let toastT=null;
+function toast(msg,kind){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='show'+(kind?' '+kind:'');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.className='',3000);
+}
+
+document.getElementById('trendChips').addEventListener('click', e=>{
+  const c = e.target.closest('.chip'); if(!c) return;
+  trendMetric = c.dataset.m;
+  document.querySelectorAll('#trendChips .chip').forEach(k=>k.classList.toggle('on', k===c));
+  drawTrend(curSession().shots);
+});
+document.getElementById('fftWinChips').addEventListener('click', e=>{
+  const c = e.target.closest('.chip'); if(!c) return;
+  fftWinMs = parseInt(c.dataset.w);
+  document.querySelectorAll('#fftWinChips .chip').forEach(k=>k.classList.toggle('on', k===c));
+  renderFft();
+});
+let rsT=null;
+window.addEventListener('resize', ()=>{
+  clearTimeout(rsT);
+  rsT = setTimeout(()=>{
+    const act = document.querySelector('.tab.active');
+    if(act) showTab(act.dataset.tab);
+  }, 160);
+});
+
+loadDb();
+</script>
+</body>
+</html>
