@@ -3,3 +3,7 @@
 .clang_complete
 .gcc-flags.json
 .ini
+# Python (Streamlit)
+__pycache__/
+*.pyc
+.streamlit/
